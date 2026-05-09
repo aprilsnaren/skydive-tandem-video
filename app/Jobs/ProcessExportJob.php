@@ -84,11 +84,11 @@ class ProcessExportJob implements ShouldQueue
             }
 
             // ----------------------------------------------------------------
-            // Step 4 — Remux with faststart
+            // Step 4 — Move last intermediate to final output path (zero-copy)
             // ----------------------------------------------------------------
-            $export->update(['status_message' => 'Encoding final video…']);
+            $export->update(['status_message' => 'Finalising video…']);
             $this->finalEncode($workingFile, $outputPath);
-            // Free the last intermediate file now that the output is written
+            // finalEncode uses rename(), so $workingFile no longer exists — @unlink is a no-op but harmless
             @unlink($workingFile);
 
             $export->update([
@@ -216,15 +216,13 @@ class ProcessExportJob implements ShouldQueue
 
     private function finalEncode(string $inputPath, string $outputPath): void
     {
-        // Streams are already h264/aac from previous steps — just remux with
-        // -c copy. Omitting +faststart avoids the internal temp-file copy that
-        // ffmpeg needs to move the moov atom, which would double peak disk usage
-        // on the production server. The output is still a fully valid MP4.
-        $this->ffmpeg(sprintf(
-            '-y -i %s -c copy %s',
-            escapeshellarg($inputPath),
-            escapeshellarg($outputPath),
-        ));
+        // Move the last intermediate file directly into the output path.
+        // rename() is atomic and zero-copy when src and dst are on the same
+        // filesystem (both under storage/), so peak disk usage drops to 1×
+        // the output file size instead of 2×. FFmpeg is not invoked at all.
+        if (!rename($inputPath, $outputPath)) {
+            throw new \RuntimeException("Failed to move {$inputPath} → {$outputPath}");
+        }
     }
 
     private function mixMusic(string $inputPath, string $musicPath, string $outputPath): void
