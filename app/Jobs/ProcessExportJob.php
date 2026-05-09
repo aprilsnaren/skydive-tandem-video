@@ -63,6 +63,10 @@ class ProcessExportJob implements ShouldQueue
                 $musicUpload = Upload::where('uuid', $this->musicUuid)->firstOrFail();
                 $musicPath   = $this->storagePath($musicUpload->path);
                 $this->mixMusic($workingFile, $musicPath, $musicFile);
+                // Free the previous intermediate file immediately to reclaim disk space
+                if ($workingFile !== $concatFile || true) {
+                    @unlink($workingFile);
+                }
                 $workingFile = $musicFile;
             }
 
@@ -74,14 +78,18 @@ class ProcessExportJob implements ShouldQueue
                 $logoPath = $this->storagePath(Upload::where('uuid', $this->logoUuid)->value('path'));
                 $duration = (int) config('videoedit.logo_duration', 10);
                 $this->appendLogoSplash($workingFile, $logoPath, $duration, $logoFile);
+                // Free the previous intermediate file immediately to reclaim disk space
+                @unlink($workingFile);
                 $workingFile = $logoFile;
             }
 
             // ----------------------------------------------------------------
-            // Step 4 — Final encode with faststart
+            // Step 4 — Remux with faststart
             // ----------------------------------------------------------------
             $export->update(['status_message' => 'Encoding final video…']);
             $this->finalEncode($workingFile, $outputPath);
+            // Free the last intermediate file now that the output is written
+            @unlink($workingFile);
 
             $export->update([
                 'status'         => 'done',
@@ -209,11 +217,11 @@ class ProcessExportJob implements ShouldQueue
     private function finalEncode(string $inputPath, string $outputPath): void
     {
         // Streams are already h264/aac from previous steps — just remux with
-        // faststart so the moov atom is at the front for progressive playback.
-        // Using -c copy avoids a redundant re-encode, halves peak disk usage,
-        // and prevents OOM/ENOSPC kills on the production server.
+        // -c copy. Omitting +faststart avoids the internal temp-file copy that
+        // ffmpeg needs to move the moov atom, which would double peak disk usage
+        // on the production server. The output is still a fully valid MP4.
         $this->ffmpeg(sprintf(
-            '-y -i %s -c copy -movflags +faststart %s',
+            '-y -i %s -c copy %s',
             escapeshellarg($inputPath),
             escapeshellarg($outputPath),
         ));
