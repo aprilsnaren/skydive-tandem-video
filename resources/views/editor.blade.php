@@ -90,7 +90,7 @@
             <div class="flex items-center justify-between">
                 <div>
                     <h2 class="text-lg font-semibold">1. Clips</h2>
-                    <p class="text-gray-500 text-sm mt-0.5">Preview each clip, set trim points, then drag to reorder.</p>
+                    <p class="text-gray-500 text-sm mt-0.5">Preview each clip, set trim points. Use the arrows to reorder.</p>
                 </div>
 
                 {{-- Add more clips button --}}
@@ -105,22 +105,39 @@
 
             <p x-show="uploadError" x-text="uploadError" class="text-red-400 text-sm"></p>
 
+            {{-- Upload progress (visible while files are being uploaded) --}}
+            <div x-show="pendingUploads.length > 0" class="space-y-2">
+                <template x-for="p in pendingUploads" :key="p.uuid">
+                    <div class="bg-gray-800 rounded-xl px-4 py-3 space-y-2">
+                        <div class="flex items-center justify-between text-sm">
+                            <span class="text-gray-300 truncate max-w-xs" x-text="p.name"></span>
+                            <span x-show="!p.error" class="text-gray-400 shrink-0 ml-2" x-text="p.progress + '%'"></span>
+                            <span x-show="p.error" class="text-red-400 shrink-0 ml-2 text-xs" x-text="p.error"></span>
+                        </div>
+                        <div class="h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                            <div
+                                class="h-full brand-bg rounded-full transition-all duration-150"
+                                :class="p.error ? 'bg-red-500' : ''"
+                                :style="`width: ${p.error ? 100 : p.progress}%`"
+                            ></div>
+                        </div>
+                    </div>
+                </template>
+            </div>
+
             <ul class="space-y-4">
                 <template x-for="(clip, index) in clips" :key="clip.uuid">
-                    <li
-                        class="bg-gray-800 rounded-xl overflow-hidden"
-                        draggable="true"
-                        @dragstart="dragStart(index)"
-                        @dragover.prevent="dragOver(index)"
-                        @drop.prevent="drop(index)"
-                        @dragend="dragEnd()"
-                        :class="{ 'dragging': dragIndex === index, 'drag-over': dragOverIndex === index && dragOverIndex !== dragIndex }"
-                    >
+                    <li class="bg-gray-800 rounded-xl overflow-hidden">
                         {{-- Clip header --}}
                         <div class="flex items-center gap-2 px-4 pt-4 pb-2">
-                            <svg class="w-4 h-4 text-gray-500 cursor-grab shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                                <path d="M7 2a1 1 0 110 2 1 1 0 010-2zm6 0a1 1 0 110 2 1 1 0 010-2zM7 8a1 1 0 110 2 1 1 0 010-2zm6 0a1 1 0 110 2 1 1 0 010-2zM7 14a1 1 0 110 2 1 1 0 010-2zm6 0a1 1 0 110 2 1 1 0 010-2z"/>
-                            </svg>
+                            <div class="flex flex-col shrink-0">
+                                <button @click="moveUp(index)" :disabled="index === 0" class="text-gray-500 hover:text-white disabled:opacity-20 transition leading-none p-0.5">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"/></svg>
+                                </button>
+                                <button @click="moveDown(index)" :disabled="index === clips.length - 1" class="text-gray-500 hover:text-white disabled:opacity-20 transition leading-none p-0.5">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                                </button>
+                            </div>
                             <span class="text-sm font-medium text-gray-200 truncate flex-1" x-text="clip.original_name"></span>
                             <span class="text-xs text-gray-500 shrink-0" x-text="clip.nativeDuration ? formatDuration(clip.nativeDuration) + ' total' : ''"></span>
                             <button @click="removeClip(index)" class="text-gray-500 hover:text-red-400 transition shrink-0">
@@ -407,7 +424,7 @@
     </main>
 
     <script>
-    const CHUNK_SIZE = 5 * 1024 * 1024; // 5 MB per chunk
+    const CHUNK_SIZE = 2 * 1024 * 1024; // 2 MB per chunk
 
     function editor() {
         return {
@@ -441,8 +458,6 @@
             emailSent:      false,
             emailError:     null,
 
-            dragIndex:      null,
-            dragOverIndex:  null,
 
             // ----------------------------------------------------------------
             // Computed
@@ -471,11 +486,13 @@
             },
 
             // ----------------------------------------------------------------
-            // Chunked upload — clips
+            // Chunked upload — clips (sequential to avoid saturating the connection)
             // ----------------------------------------------------------------
             async _uploadClipFiles(files) {
                 this.uploadError = null;
-                await Promise.all(files.map(f => this._chunkUpload(f, 'video')));
+                for (const f of files) {
+                    await this._chunkUpload(f, 'video');
+                }
             },
 
             async _chunkUpload(file, type) {
@@ -635,16 +652,18 @@
             },
 
             // ----------------------------------------------------------------
-            // Drag-to-reorder
+            // Reorder clips
             // ----------------------------------------------------------------
-            dragStart(index) { this.dragIndex = index; },
-            dragOver(index)  { this.dragOverIndex = index; },
-            dragEnd()        { this.dragIndex = null; this.dragOverIndex = null; },
+            moveUp(index) {
+                if (index === 0) return;
+                const moved = this.clips.splice(index, 1)[0];
+                this.clips.splice(index - 1, 0, moved);
+            },
 
-            drop(index) {
-                if (this.dragIndex === null || this.dragIndex === index) return;
-                const moved = this.clips.splice(this.dragIndex, 1)[0];
-                this.clips.splice(index, 0, moved);
+            moveDown(index) {
+                if (index === this.clips.length - 1) return;
+                const moved = this.clips.splice(index, 1)[0];
+                this.clips.splice(index + 1, 0, moved);
             },
 
             // ----------------------------------------------------------------
