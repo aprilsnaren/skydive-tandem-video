@@ -208,8 +208,12 @@ class ProcessExportJob implements ShouldQueue
 
     private function finalEncode(string $inputPath, string $outputPath): void
     {
+        // Streams are already h264/aac from previous steps — just remux with
+        // faststart so the moov atom is at the front for progressive playback.
+        // Using -c copy avoids a redundant re-encode, halves peak disk usage,
+        // and prevents OOM/ENOSPC kills on the production server.
         $this->ffmpeg(sprintf(
-            '-y -i %s -c:v libx264 -preset fast -crf 23 -movflags +faststart -c:a aac %s',
+            '-y -i %s -c copy -movflags +faststart %s',
             escapeshellarg($inputPath),
             escapeshellarg($outputPath),
         ));
