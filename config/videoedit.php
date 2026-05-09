@@ -41,6 +41,14 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Operator notification e-mail — receives a message when a guest downloads
+    | Override with VE_NOTIFY_EMAIL env variable, or set to null to disable.
+    |--------------------------------------------------------------------------
+    */
+    'notify_email' => env('VE_NOTIFY_EMAIL', 'emil@anle.dk'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Brevo transactional email API
     |--------------------------------------------------------------------------
     */

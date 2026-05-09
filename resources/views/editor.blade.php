@@ -34,9 +34,9 @@
     </header>
 
     {{-- -------------------------------------------------------------------- --}}
-    {{-- LANDING: Upload drop zone — shown until first clips finish uploading  --}}
+    {{-- LANDING: Upload drop zone — shown until uploads begin                 --}}
     {{-- -------------------------------------------------------------------- --}}
-    <div x-show="clips.length === 0" class="flex flex-col items-center justify-center min-h-[80vh] px-4">
+    <div x-show="clips.length === 0 && pendingUploads.length === 0" class="flex flex-col items-center justify-center min-h-[80vh] px-4">
         <h1 class="text-3xl font-bold mb-2">Create a tandem video</h1>
         <p class="text-gray-400 mb-10 text-center max-w-md">Upload your clips, trim them, add music, and share with your guest.</p>
 
@@ -79,9 +79,10 @@
     </div>
 
     {{-- -------------------------------------------------------------------- --}}
-    {{-- EDITOR: shown once clips are loaded                                   --}}
+    {{-- EDITOR: shown as soon as uploads start (clips list may be empty while --}}
+    {{--         files are still uploading)                                    --}}
     {{-- -------------------------------------------------------------------- --}}
-    <main x-show="clips.length > 0" class="max-w-3xl mx-auto px-4 py-8 space-y-6">
+    <main x-show="clips.length > 0 || pendingUploads.length > 0" class="max-w-3xl mx-auto px-4 py-8 space-y-6">
 
         {{-- ---------------------------------------------------------------- --}}
         {{-- Step 1: Clips — trim + preview + reorder                         --}}

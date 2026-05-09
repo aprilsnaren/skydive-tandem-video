@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Export;
+use App\Services\BrevoMailer;
 
 class ShareController extends Controller
 {
@@ -42,8 +43,19 @@ class ShareController extends Controller
             ? \Illuminate\Support\Str::slug($export->guest_name) . '-tandem.mp4'
             : 'tandem-video.mp4';
 
-        if (! $export->downloaded_at) {
+        $firstDownload = ! $export->downloaded_at;
+
+        if ($firstDownload) {
             $export->update(['downloaded_at' => now()]);
+
+            $notifyEmail = config('videoedit.notify_email');
+            if ($notifyEmail) {
+                app(BrevoMailer::class)->sendDownloadNotification(
+                    $notifyEmail,
+                    $export->guest_name ?? 'Ukendt',
+                    route('share', $export->uuid),
+                );
+            }
         }
 
         return response()->download($absolutePath, $filename, [

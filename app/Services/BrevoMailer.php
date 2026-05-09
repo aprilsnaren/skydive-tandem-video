@@ -84,6 +84,27 @@ class BrevoMailer
         return $this->send($email, $name, $subject, $html);
     }
 
+    /**
+     * Notify the operator that a guest has downloaded their video.
+     */
+    public function sendDownloadNotification(string $notifyEmail, string $guestName, string $shareUrl): bool
+    {
+        $subject = "Video downloadet: {$guestName}";
+
+        $html = $this->wrap('', "
+            <p>En g&aelig;st har downloadet sin tandem video.</p>
+            <table style='margin:16px 0;font-size:15px'>
+                <tr><td style='padding:4px 12px 4px 0;color:#888'>G&aelig;st:</td><td><strong>{$guestName}</strong></td></tr>
+                <tr><td style='padding:4px 12px 4px 0;color:#888'>Tidspunkt:</td><td>" . now()->format('d/m/Y H:i') . "</td></tr>
+            </table>
+            <p style='text-align:center;margin:32px 0'>
+                <a href='{$shareUrl}' style='" . $this->btnStyle() . "'>&Aring;bn video</a>
+            </p>
+        ");
+
+        return $this->send($notifyEmail, '', $subject, $html);
+    }
+
     // -------------------------------------------------------------------------
 
     protected function send(string $toEmail, string $toName, string $subject, string $htmlContent): bool
