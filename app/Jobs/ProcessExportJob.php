@@ -38,7 +38,6 @@ class ProcessExportJob implements ShouldQueue
 
         try {
             $concatFile = $tmpDir . '/concat.mp4';
-            $musicFile  = $tmpDir . '/with_music.mp4';
             $logoFile   = $tmpDir . '/with_logo.mp4';
             $slug       = $export->guest_name ? \Illuminate\Support\Str::slug($export->guest_name) . '_' : '';
             $outputFile = 'exports/' . $slug . $export->uuid . '.mp4';
@@ -47,28 +46,23 @@ class ProcessExportJob implements ShouldQueue
             @mkdir(storage_path('app/exports'), 0755, true);
 
             // ----------------------------------------------------------------
-            // Step 1 — Trim every clip and concatenate them
+            // Step 1 — Trim, concatenate, and mix music all in one FFmpeg pass
+            // (combining these avoids writing a full intermediate file for each
+            //  step, cutting peak disk usage from 2× to 1× the output size)
             // ----------------------------------------------------------------
             $clipCount = count($this->clips);
-            $export->update(['status_message' => "Trimming and joining {$clipCount} clip" . ($clipCount === 1 ? '' : 's') . '…']);
-            $this->concatClips($this->clips, $concatFile);
-
-            $workingFile = $concatFile;
-
-            // ----------------------------------------------------------------
-            // Step 2 — Mix in background music (optional)
-            // ----------------------------------------------------------------
+            $musicPath = null;
             if ($this->musicUuid) {
-                $export->update(['status_message' => 'Mixing in background music…']);
                 $musicUpload = Upload::where('uuid', $this->musicUuid)->firstOrFail();
                 $musicPath   = $this->storagePath($musicUpload->path);
-                $this->mixMusic($workingFile, $musicPath, $musicFile);
-                // Free the previous intermediate file immediately to reclaim disk space
-                if ($workingFile !== $concatFile || true) {
-                    @unlink($workingFile);
-                }
-                $workingFile = $musicFile;
             }
+
+            $statusMsg = "Trimming and joining {$clipCount} clip" . ($clipCount === 1 ? '' : 's');
+            if ($musicPath) $statusMsg .= ' and mixing music';
+            $export->update(['status_message' => $statusMsg . '…']);
+
+            $this->concatClips($this->clips, $concatFile, $musicPath);
+            $workingFile = $concatFile;
 
             // ----------------------------------------------------------------
             // Step 3 — Append logo end-card (optional)
@@ -121,7 +115,7 @@ class ProcessExportJob implements ShouldQueue
     // Private helpers
     // -------------------------------------------------------------------------
 
-    private function concatClips(array $clips, string $outputPath): void
+    private function concatClips(array $clips, string $outputPath, ?string $musicPath = null): void
     {
         $w = config('videoedit.output_width',  1920);
         $h = config('videoedit.output_height', 1080);
@@ -136,19 +130,33 @@ class ProcessExportJob implements ShouldQueue
             $input    = $this->storagePath($upload->path);
             $duration = (float) $clip['trim_end'] - (float) $clip['trim_start'];
 
-            $this->ffmpeg(sprintf(
-                '-y -ss %s -t %s -i %s -vf %s -c:v libx264 -preset fast -crf 23 -c:a aac %s',
-                escapeshellarg((string) $clip['trim_start']),
-                escapeshellarg((string) $duration),
-                escapeshellarg($input),
-                escapeshellarg($normalize),
-                escapeshellarg($outputPath),
-            ));
+            if ($musicPath) {
+                // Combine trim + scale + music mix in one pass (no intermediate file)
+                $filter = "[0:v]{$normalize}[v];[0:a][1:a]amix=inputs=2:duration=first:dropout_transition=2[a]";
+                $this->ffmpeg(sprintf(
+                    '-y -ss %s -t %s -i %s -i %s -filter_complex %s -map [v] -map [a] -c:v libx264 -preset fast -crf 23 -threads 2 -c:a aac %s',
+                    escapeshellarg((string) $clip['trim_start']),
+                    escapeshellarg((string) $duration),
+                    escapeshellarg($input),
+                    escapeshellarg($musicPath),
+                    escapeshellarg($filter),
+                    escapeshellarg($outputPath),
+                ));
+            } else {
+                $this->ffmpeg(sprintf(
+                    '-y -ss %s -t %s -i %s -vf %s -c:v libx264 -preset fast -crf 23 -threads 2 -c:a aac %s',
+                    escapeshellarg((string) $clip['trim_start']),
+                    escapeshellarg((string) $duration),
+                    escapeshellarg($input),
+                    escapeshellarg($normalize),
+                    escapeshellarg($outputPath),
+                ));
+            }
 
             return;
         }
 
-        // Multiple clips — normalize each, then concat
+        // Multiple clips — normalize each, concat, and optionally mix music — all in one pass
         $inputs        = '';
         $scaleFilters  = '';
         $concatStreams  = '';
@@ -171,14 +179,29 @@ class ProcessExportJob implements ShouldQueue
             $concatStreams .= "[v{$i}][{$i}:a]";
         }
 
-        $filter = $scaleFilters . $concatStreams . "concat=n={$n}:v=1:a=1[v][a]";
+        if ($musicPath) {
+            // Music is appended as input index $n; concat audio is piped into amix
+            $filter = $scaleFilters
+                    . $concatStreams
+                    . "concat=n={$n}:v=1:a=1[v][concata];[concata][{$n}:a]amix=inputs=2:duration=first:dropout_transition=2[a]";
 
-        $this->ffmpeg(sprintf(
-            '-y %s -filter_complex %s -map [v] -map [a] -c:v libx264 -preset fast -crf 23 -c:a aac %s',
-            $inputs,
-            escapeshellarg($filter),
-            escapeshellarg($outputPath),
-        ));
+            $this->ffmpeg(sprintf(
+                '-y %s -i %s -filter_complex %s -map [v] -map [a] -c:v libx264 -preset fast -crf 23 -threads 2 -c:a aac %s',
+                $inputs,
+                escapeshellarg($musicPath),
+                escapeshellarg($filter),
+                escapeshellarg($outputPath),
+            ));
+        } else {
+            $filter = $scaleFilters . $concatStreams . "concat=n={$n}:v=1:a=1[v][a]";
+
+            $this->ffmpeg(sprintf(
+                '-y %s -filter_complex %s -map [v] -map [a] -c:v libx264 -preset fast -crf 23 -threads 2 -c:a aac %s',
+                $inputs,
+                escapeshellarg($filter),
+                escapeshellarg($outputPath),
+            ));
+        }
     }
 
     private function appendLogoSplash(string $inputPath, string $logoPath, int $duration, string $outputPath): void
@@ -190,7 +213,7 @@ class ProcessExportJob implements ShouldQueue
         $logoVideoFile = dirname($outputPath) . '/logo_card.mp4';
 
         $this->ffmpeg(sprintf(
-            '-y -loop 1 -i %s -vf %s -t %d -c:v libx264 -preset fast -crf 23 -pix_fmt yuv420p -an %s',
+            '-y -loop 1 -i %s -vf %s -t %d -c:v libx264 -preset fast -crf 23 -threads 2 -pix_fmt yuv420p -an %s',
             escapeshellarg($logoPath),
             escapeshellarg("scale={$w}:{$h}:force_original_aspect_ratio=decrease,pad={$w}:{$h}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1"),
             $duration,
@@ -204,7 +227,7 @@ class ProcessExportJob implements ShouldQueue
         // Add a silent audio stream to the logo card so concat works
         $this->ffmpeg(sprintf(
             '-y -i %s -f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100 -i %s '
-            . '-filter_complex %s -map [v] -map [a] -c:v libx264 -preset fast -crf 23 -c:a aac -shortest %s',
+            . '-filter_complex %s -map [v] -map [a] -c:v libx264 -preset fast -crf 23 -threads 2 -c:a aac -shortest %s',
             escapeshellarg($inputPath),
             escapeshellarg($logoVideoFile),
             escapeshellarg($filter),
@@ -276,8 +299,16 @@ class ProcessExportJob implements ShouldQueue
         exec($cmd, $output, $code);
 
         if ($code !== 0) {
+            // Log the full output so we can see the actual error line,
+            // not just the libx264 stats that appear at the end.
+            Log::error('FFmpeg command failed', [
+                'exit_code' => $code,
+                'command'   => $bin . ' ' . $args,
+                'output'    => implode("\n", $output),
+            ]);
+
             throw new RuntimeException(
-                'FFmpeg failed (exit ' . $code . '): ' . implode("\n", array_slice($output, -20))
+                'FFmpeg failed (exit ' . $code . '): ' . implode("\n", array_slice($output, -40))
             );
         }
     }
