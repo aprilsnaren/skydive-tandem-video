@@ -527,7 +527,9 @@
                         }
 
                         const data = await resp.json();
-                        pending.progress = Math.round(((i + 1) / totalChunks) * 100);
+                        // Update progress through the reactive array so Alpine detects the change
+                        const reactive = this.pendingUploads.find(p => p.uuid === uuid);
+                        if (reactive) reactive.progress = Math.round(((i + 1) / totalChunks) * 100);
 
                         if (data.status === 'done') {
                             if (type === 'video') {
@@ -546,7 +548,8 @@
                         }
                     }
                 } catch (err) {
-                    pending.error = err.message;
+                    const reactive = this.pendingUploads.find(p => p.uuid === uuid);
+                    if (reactive) reactive.error = err.message;
                     this.uploadError = err.message;
                     if (localUrl) URL.revokeObjectURL(localUrl);
                 } finally {
