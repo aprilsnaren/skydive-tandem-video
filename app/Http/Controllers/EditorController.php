@@ -11,9 +11,131 @@ use Illuminate\Support\Str;
 
 class EditorController extends Controller
 {
-    public function index()
+    // -------------------------------------------------------------------------
+    // Auth
+    // -------------------------------------------------------------------------
+
+    public function showLogin()
+    {
+        return view('login');
+    }
+
+    public function login(Request $request)
+    {
+        $request->validate(['password' => ['required', 'string']]);
+
+        $configured = config('videoedit.editor_password');
+
+        if ($configured && $request->input('password') === $configured) {
+            $request->session()->regenerate();
+            $request->session()->put('editor_authed', true);
+            return redirect()->route('dashboard');
+        }
+
+        return back()->withErrors(['password' => 'Incorrect password.'])->withInput();
+    }
+
+    public function logout(Request $request)
+    {
+        $request->session()->forget('editor_authed');
+        return redirect()->route('login');
+    }
+
+    // -------------------------------------------------------------------------
+    // Dashboard
+    // -------------------------------------------------------------------------
+
+    public function dashboard()
+    {
+        $exports = Export::latest()->get();
+        return view('dashboard', compact('exports'));
+    }
+
+    // -------------------------------------------------------------------------
+    // Editor
+    // -------------------------------------------------------------------------
+
+    public function newEditor()
     {
         return view('editor');
+    }
+
+    public function editExport(string $uuid)
+    {
+        $export = Export::where('uuid', $uuid)->firstOrFail();
+
+        $initial = null;
+
+        if ($export->clips_config) {
+            $config = $export->clips_config;
+            $clips  = [];
+
+            foreach ($config['clips'] ?? [] as $clip) {
+                $upload    = Upload::where('uuid', $clip['uuid'])->first();
+                $fileExists = $upload && file_exists(storage_path("app/{$upload->path}"));
+
+                $clips[] = [
+                    'uuid'          => $clip['uuid'],
+                    'original_name' => $clip['original_name'],
+                    'localUrl'      => $fileExists ? route('uploads.stream', $clip['uuid']) : null,
+                    'trim_start'    => (float) ($clip['trim_start'] ?? 0),
+                    'trim_end'      => (float) ($clip['trim_end'] ?? 0),
+                    'nativeDuration'=> null,
+                    'trimError'     => null,
+                    'fileExpired'   => !$fileExists,
+                ];
+            }
+
+            $logoUuid = $config['logo_uuid'] ?? null;
+            $logoUpload = $logoUuid ? Upload::where('uuid', $logoUuid)->first() : null;
+            $logoFileExists = $logoUpload && file_exists(storage_path("app/{$logoUpload->path}"));
+
+            $initial = [
+                'clips'     => $clips,
+                'guestName' => $export->guest_name ?? '',
+                'guestEmail'=> $export->guest_email ?? '',
+                'musicUuid' => $config['music_uuid'] ?? null,
+                'music'     => isset($config['music_name']) ? ['name' => $config['music_name']] : null,
+                'logoUuid'  => $logoUuid,
+                'logo'      => $logoUuid
+                    ? [
+                        'name'     => $config['logo_name'] ?? 'logo',
+                        'localUrl' => $logoFileExists ? route('uploads.stream', $logoUuid) : null,
+                    ]
+                    : null,
+            ];
+
+            if ($export->isDone() && $export->path) {
+                $initial['exportUuid'] = $export->uuid;
+                $initial['shareUrl']   = route('share', $export->uuid);
+                $initial['videoUrl']   = route('share.video', $export->uuid);
+            }
+
+            if ($export->isFailed()) {
+                $initial['exportUuid']   = $export->uuid;
+                $initial['exportFailed'] = true;
+                $initial['exportErrMsg'] = $export->error_message;
+            }
+
+            if (in_array($export->status, ['pending', 'processing'])) {
+                $initial['exportUuid'] = $export->uuid;
+            }
+        }
+
+        return view('editor', compact('initial'));
+    }
+
+    /**
+     * Stream an uploaded file — used for clip/logo preview when re-editing.
+     */
+    public function streamUpload(string $uuid)
+    {
+        $upload = Upload::where('uuid', $uuid)->firstOrFail();
+        $path   = storage_path("app/{$upload->path}");
+
+        abort_unless(file_exists($path), 404);
+
+        return response()->file($path);
     }
 
     /**
@@ -151,6 +273,9 @@ class EditorController extends Controller
      * POST body (JSON or form):
      *   clips[]          — ordered array of { uuid, trim_start, trim_end }
      *   music_uuid       — optional upload UUID of the music file
+     *   logo_uuid        — optional upload UUID of the logo image
+     *   guest_name       — optional guest name
+     *   guest_email      — optional guest email
      */
     public function export(Request $request)
     {
@@ -165,17 +290,38 @@ class EditorController extends Controller
             'guest_email'        => ['nullable', 'email', 'max:254'],
         ]);
 
+        $clips     = $request->input('clips');
+        $musicUuid = $request->input('music_uuid');
+        $logoUuid  = $request->input('logo_uuid');
+
+        // Build the clips_config snapshot for later re-editing.
+        $clipsConfig = [
+            'clips'      => array_map(function (array $c) {
+                return [
+                    'uuid'          => $c['uuid'],
+                    'original_name' => Upload::where('uuid', $c['uuid'])->value('original_name') ?? '',
+                    'trim_start'    => (float) $c['trim_start'],
+                    'trim_end'      => (float) $c['trim_end'],
+                ];
+            }, $clips),
+            'music_uuid' => $musicUuid,
+            'music_name' => $musicUuid ? Upload::where('uuid', $musicUuid)->value('original_name') : null,
+            'logo_uuid'  => $logoUuid,
+            'logo_name'  => $logoUuid  ? Upload::where('uuid', $logoUuid)->value('original_name')  : null,
+        ];
+
         $export = Export::create([
-            'status'      => 'pending',
-            'guest_name'  => $request->input('guest_name') ?: null,
-            'guest_email' => $request->input('guest_email') ?: null,
+            'status'       => 'pending',
+            'guest_name'   => $request->input('guest_name') ?: null,
+            'guest_email'  => $request->input('guest_email') ?: null,
+            'clips_config' => $clipsConfig,
         ]);
 
         ProcessExportJob::dispatch(
             $export->id,
-            $request->input('clips'),
-            $request->input('music_uuid'),
-            $request->input('logo_uuid'),
+            $clips,
+            $musicUuid,
+            $logoUuid,
         );
 
         return response()->json([

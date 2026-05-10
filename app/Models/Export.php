@@ -9,13 +9,14 @@ class Export extends Model
 {
     protected $fillable = [
         'uuid', 'guest_name', 'guest_email', 'path', 'status',
-        'status_message', 'error_message',
+        'status_message', 'error_message', 'clips_config',
         'expires_at',
         'email_ready_at', 'email_reminder_at', 'email_tomorrow_at', 'email_today_at',
         'downloaded_at',
     ];
 
     protected $casts = [
+        'clips_config'      => 'array',
         'expires_at'        => 'datetime',
         'email_ready_at'    => 'datetime',
         'email_reminder_at' => 'datetime',

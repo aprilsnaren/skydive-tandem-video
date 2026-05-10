@@ -26,10 +26,17 @@
         .clip-preview { width: 100%; border-radius: 0.5rem; background: #000; max-height: 220px; }
     </style>
 </head>
-<body class="bg-gray-950 text-white min-h-screen" x-data="editor()" x-cloak>
+<body class="bg-gray-950 text-white min-h-screen" x-data="editor(@json($initial ?? null))" x-cloak>
 
     {{-- Header --}}
     <header class="brand-bg px-6 py-4 flex items-center gap-3 shadow-lg">
+        <a href="{{ route('dashboard') }}" class="text-white/70 hover:text-white transition text-sm flex items-center gap-1 mr-1">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+            </svg>
+            All projects
+        </a>
+        <span class="text-white/30">|</span>
         <span class="text-white font-semibold text-lg tracking-wide">{{ config('videoedit.brand_name') }}</span>
     </header>
 
@@ -151,12 +158,16 @@
                         {{-- Video preview --}}
                         <div class="px-4 pb-3">
                             <video
+                                x-show="!clip.fileExpired"
                                 class="clip-preview"
                                 preload="metadata"
                                 :src="clip.localUrl"
                                 @loadedmetadata="onVideoLoaded($event, clip)"
                                 @timeupdate="onTimeUpdate($event, clip)"
                             ></video>
+                            <p x-show="clip.fileExpired" class="text-yellow-500/80 text-xs py-2">
+                                Original file has been pruned — preview unavailable. Trim values are preserved.
+                            </p>
                         </div>
 
                         {{-- Trim controls --}}
@@ -427,37 +438,54 @@
     <script>
     const CHUNK_SIZE = 2 * 1024 * 1024; // 2 MB per chunk
 
-    function editor() {
+    function editor(initial) {
         return {
-            clips:          [],
+            clips: (initial?.clips || []).map(c => ({
+                uuid:           c.uuid,
+                original_name:  c.original_name,
+                localUrl:       c.localUrl ?? null,
+                trim_start:     c.trim_start ?? 0,
+                trim_end:       c.trim_end ?? 0,
+                nativeDuration: null,
+                trimError:      null,
+                fileExpired:    c.fileExpired ?? false,
+            })),
             pendingUploads: [], // [{ uuid, name, progress, error }]
             uploadError:    null,
 
-            guestName:      '',
-            guestEmail:     '',
+            guestName:      initial?.guestName ?? '',
+            guestEmail:     initial?.guestEmail ?? '',
 
-            music:          null,
-            musicUuid:      null,
+            music:          initial?.music ?? null,
+            musicUuid:      initial?.musicUuid ?? null,
 
-            logo:           null,
-            logoUuid:       null,
+            logo:           initial?.logo ?? null,
+            logoUuid:       initial?.logoUuid ?? null,
             logoUploading:  false,
 
             exporting:      false,
-            exportUuid:     null,
+            exportUuid:     initial?.exportUuid ?? null,
             exportError:    null,
-            exportFailed:   false,
-            exportErrMsg:   null,
+            exportFailed:   initial?.exportFailed ?? false,
+            exportErrMsg:   initial?.exportErrMsg ?? null,
             exportStep:     null,
             exportElapsed:  0,
             exportStalled:  false,
-            shareUrl:       null,
-            videoUrl:       null,
+            shareUrl:       initial?.shareUrl ?? null,
+            videoUrl:       initial?.videoUrl ?? null,
             copied:         false,
 
             emailSending:   false,
             emailSent:      false,
             emailError:     null,
+
+            init() {
+                // Resume polling if we loaded with an in-progress export
+                if (this.exportUuid && !this.shareUrl && !this.exportFailed) {
+                    this.exporting = true;
+                    this.pollStatus();
+                }
+            },
 
 
             // ----------------------------------------------------------------
@@ -593,7 +621,7 @@
             // ----------------------------------------------------------------
             removeClip(index) {
                 const clip = this.clips[index];
-                if (clip.localUrl) URL.revokeObjectURL(clip.localUrl);
+                if (clip.localUrl?.startsWith('blob:')) URL.revokeObjectURL(clip.localUrl);
                 this.clips.splice(index, 1);
             },
 
@@ -650,7 +678,7 @@
             },
 
             clearLogo() {
-                if (this.logo?.localUrl) URL.revokeObjectURL(this.logo.localUrl);
+                if (this.logo?.localUrl?.startsWith('blob:')) URL.revokeObjectURL(this.logo.localUrl);
                 this.logo     = null;
                 this.logoUuid = null;
             },
