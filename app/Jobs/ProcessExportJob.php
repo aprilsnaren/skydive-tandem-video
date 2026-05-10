@@ -38,18 +38,12 @@ class ProcessExportJob implements ShouldQueue
 
         try {
             $concatFile = $tmpDir . '/concat.mp4';
-            $logoFile   = $tmpDir . '/with_logo.mp4';
             $slug       = $export->guest_name ? \Illuminate\Support\Str::slug($export->guest_name) . '_' : '';
             $outputFile = 'exports/' . $slug . $export->uuid . '.mp4';
             $outputPath = storage_path('app/' . $outputFile);
 
             @mkdir(storage_path('app/exports'), 0755, true);
 
-            // ----------------------------------------------------------------
-            // Step 1 — Trim, concatenate, and mix music all in one FFmpeg pass
-            // (combining these avoids writing a full intermediate file for each
-            //  step, cutting peak disk usage from 2× to 1× the output size)
-            // ----------------------------------------------------------------
             $clipCount = count($this->clips);
             $musicPath = null;
             if ($this->musicUuid) {
@@ -57,39 +51,42 @@ class ProcessExportJob implements ShouldQueue
                 $musicPath   = $this->storagePath($musicUpload->path);
             }
 
-            $statusMsg = "Trimming and joining {$clipCount} clip" . ($clipCount === 1 ? '' : 's');
-            if ($musicPath) $statusMsg .= ' and mixing music';
-            $export->update(['status_message' => $statusMsg . '…']);
-
-            $this->concatClips($this->clips, $concatFile, $musicPath);
-            $workingFile = $concatFile;
-
-            // ----------------------------------------------------------------
-            // Step 3 — Append logo end-card (optional)
-            // ----------------------------------------------------------------
             if ($this->logoUuid) {
-                $export->update(['status_message' => 'Appending logo end card…']);
-                $logoPath = $this->storagePath(Upload::where('uuid', $this->logoUuid)->value('path'));
-                $duration = (int) config('videoedit.logo_duration', 10);
-                $this->appendLogoSplash($workingFile, $logoPath, $duration, $logoFile);
-                // Free the previous intermediate file immediately to reclaim disk space
-                @unlink($workingFile);
-                $workingFile = $logoFile;
-            }
+                // ----------------------------------------------------------------
+                // Single FFmpeg pass: clips + logo end-card + optional music → output
+                // This avoids ever writing concat.mp4 to disk, eliminating the peak
+                // disk usage of 2× the output size that caused ENOSPC in production.
+                // ----------------------------------------------------------------
+                $logoUpload   = Upload::where('uuid', $this->logoUuid)->firstOrFail();
+                $logoPath     = $this->storagePath($logoUpload->path);
+                $logoDuration = (int) config('videoedit.logo_duration', 10);
 
-            // ----------------------------------------------------------------
-            // Step 4 — Move last intermediate to final output path (zero-copy)
-            // ----------------------------------------------------------------
-            $export->update(['status_message' => 'Finalising video…']);
-            $this->finalEncode($workingFile, $outputPath);
-            // finalEncode uses rename(), so $workingFile no longer exists — @unlink is a no-op but harmless
-            @unlink($workingFile);
+                $statusMsg = "Trimming and joining {$clipCount} clip" . ($clipCount === 1 ? '' : 's')
+                           . ' and appending logo end card';
+                if ($musicPath) $statusMsg .= ' and mixing music';
+                $export->update(['status_message' => $statusMsg . '…']);
+
+                $this->buildVideo($this->clips, $outputPath, $musicPath, $logoPath, $logoDuration);
+            } else {
+                // ----------------------------------------------------------------
+                // Two-step: concat clips (+ optional music) → rename to output.
+                // No logo means peak disk usage stays at 1× the output size.
+                // ----------------------------------------------------------------
+                $statusMsg = "Trimming and joining {$clipCount} clip" . ($clipCount === 1 ? '' : 's');
+                if ($musicPath) $statusMsg .= ' and mixing music';
+                $export->update(['status_message' => $statusMsg . '…']);
+
+                $this->concatClips($this->clips, $concatFile, $musicPath);
+
+                $export->update(['status_message' => 'Finalising video…']);
+                $this->finalEncode($concatFile, $outputPath);
+            }
 
             $export->update([
                 'status'         => 'done',
                 'status_message' => null,
                 'path'           => $outputFile,
-                'expires_at'     => now()->addDays(7),
+                'expires_at'     => now()->addDays(8),
             ]);
         } catch (\Throwable $e) {
             Log::error('ProcessExportJob failed', [
@@ -204,37 +201,94 @@ class ProcessExportJob implements ShouldQueue
         }
     }
 
-    private function appendLogoSplash(string $inputPath, string $logoPath, int $duration, string $outputPath): void
-    {
-        $w = config('videoedit.output_width',  1920);
-        $h = config('videoedit.output_height', 1080);
+    /**
+     * Build the complete output video in a single FFmpeg pass.
+     * Handles N-clip concatenation, optional logo end-card, and optional music mix.
+     * Writes directly to $outputPath with no intermediate files on disk.
+     */
+    private function buildVideo(
+        array $clips,
+        string $outputPath,
+        ?string $musicPath,
+        ?string $logoPath,
+        int $logoDuration,
+    ): void {
+        $w = (int) config('videoedit.output_width',  1920);
+        $h = (int) config('videoedit.output_height', 1080);
+        $normalize = "scale={$w}:{$h}:force_original_aspect_ratio=decrease,"
+                   . "pad={$w}:{$h}:(ow-iw)/2:(oh-ih)/2,setsar=1";
 
-        // Build a $duration-second video from the image, scaled+padded to match output resolution
-        $logoVideoFile = dirname($outputPath) . '/logo_card.mp4';
+        $n           = count($clips);
+        $inputArgs   = '';
+        $filterParts = [];
+        $idx         = 0;
+
+        // ── Clip inputs ──────────────────────────────────────────────────────
+        $clipV = '';
+        $clipA = '';
+        foreach ($clips as $clip) {
+            $upload = Upload::where('uuid', $clip['uuid'])->firstOrFail();
+            $path   = $this->storagePath($upload->path);
+            $start  = (float) $clip['trim_start'];
+            $dur    = (float) $clip['trim_end'] - $start;
+
+            $inputArgs .= sprintf(
+                ' -ss %s -t %s -i %s',
+                escapeshellarg((string) $start),
+                escapeshellarg((string) $dur),
+                escapeshellarg($path),
+            );
+            $filterParts[] = "[{$idx}:v]{$normalize}[cv{$idx}]";
+            $clipV .= "[cv{$idx}]";
+            $clipA .= "[{$idx}:a]";
+            $idx++;
+        }
+
+        // Concatenate clips → [joinv][joina]
+        $filterParts[] = "{$clipV}{$clipA}concat=n={$n}:v=1:a=1[joinv][joina]";
+        $outV = 'joinv';
+        $outA = 'joina';
+
+        // ── Logo end-card (optional) ─────────────────────────────────────────
+        if ($logoPath !== null) {
+            // Logo image input: loop for $logoDuration seconds at 25 fps
+            $logoIdx = $idx++;
+            $inputArgs .= sprintf(
+                ' -loop 1 -framerate 25 -t %d -i %s',
+                $logoDuration,
+                escapeshellarg($logoPath),
+            );
+            // Silent stereo audio to pair with the silent logo image
+            $nullIdx = $idx++;
+            $inputArgs .= sprintf(
+                ' -f lavfi -t %d -i anullsrc=channel_layout=stereo:sample_rate=48000',
+                $logoDuration,
+            );
+
+            $filterParts[] = "[{$logoIdx}:v]{$normalize}[vlogo]";
+            $filterParts[] = "[{$outV}][{$outA}][vlogo][{$nullIdx}:a]concat=n=2:v=1:a=1[withlogov][withlogoa]";
+            $outV = 'withlogov';
+            $outA = 'withlogoa';
+        }
+
+        // ── Music mix (optional) ─────────────────────────────────────────────
+        if ($musicPath !== null) {
+            $musicIdx = $idx++;
+            $inputArgs .= ' -i ' . escapeshellarg($musicPath);
+            $filterParts[] = "[{$outA}][{$musicIdx}:a]amix=inputs=2:duration=first:dropout_transition=2[mixeda]";
+            $outA = 'mixeda';
+        }
+
+        $filterComplex = implode(';', $filterParts);
 
         $this->ffmpeg(sprintf(
-            '-y -loop 1 -i %s -vf %s -t %d -c:v libx264 -preset fast -crf 23 -threads 2 -pix_fmt yuv420p -an %s',
-            escapeshellarg($logoPath),
-            escapeshellarg("scale={$w}:{$h}:force_original_aspect_ratio=decrease,pad={$w}:{$h}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1"),
-            $duration,
-            escapeshellarg($logoVideoFile),
-        ));
-
-        // Concat main video + logo card; logo card has no audio so we pad silence
-        // Input order: 0=mainVideo, 1=anullsrc (audio only), 2=logoVideo
-        $filter = '[0:v][0:a][2:v][1:a]concat=n=2:v=1:a=1[v][a]';
-
-        // Add a silent audio stream to the logo card so concat works
-        $this->ffmpeg(sprintf(
-            '-y -i %s -f lavfi -i anullsrc=channel_layout=stereo:sample_rate=44100 -i %s '
-            . '-filter_complex %s -map [v] -map [a] -c:v libx264 -preset fast -crf 23 -threads 2 -c:a aac -shortest %s',
-            escapeshellarg($inputPath),
-            escapeshellarg($logoVideoFile),
-            escapeshellarg($filter),
+            '-y %s -filter_complex %s -map [%s] -map [%s] -c:v libx264 -preset fast -crf 23 -threads 2 -c:a aac %s',
+            $inputArgs,
+            escapeshellarg($filterComplex),
+            $outV,
+            $outA,
             escapeshellarg($outputPath),
         ));
-
-        @unlink($logoVideoFile);
     }
 
     private function finalEncode(string $inputPath, string $outputPath): void

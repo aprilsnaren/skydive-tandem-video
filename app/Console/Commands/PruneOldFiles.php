@@ -15,9 +15,11 @@ class PruneOldFiles extends Command
     public function handle(): int
     {
         // ------------------------------------------------------------------
-        // 1. Prune raw uploads older than 7 days
+        // 1. Prune raw uploads older than 12 hours
+        //    Uploads are only needed while the FFmpeg job runs (minutes).
+        //    12 hours is generous enough to cover retries and slow queues.
         // ------------------------------------------------------------------
-        $uploadThreshold = Carbon::now()->subDays(7);
+        $uploadThreshold = Carbon::now()->subHours(12);
         $uploads = Upload::where('created_at', '<', $uploadThreshold)->get();
 
         foreach ($uploads as $upload) {
