@@ -133,7 +133,7 @@ class ProcessExportJob implements ShouldQueue
                 $aIn = $audioF ? "[0:a]{$audioF}[clipA];[clipA]" : '[0:a]';
                 $filter = "[0:v]{$normalize}[v];{$aIn}[1:a]amix=inputs=2:duration=first:dropout_transition=2[a]";
                 $this->ffmpeg(sprintf(
-                    '-y -ss %s -t %s -i %s -i %s -filter_complex %s -map [v] -map [a] -c:v libx264 -preset fast -crf 23 -threads 2 -c:a aac %s',
+                    '-y -ss %s -t %s -i %s -stream_loop -1 -i %s -filter_complex %s -map [v] -map [a] -c:v libx264 -preset fast -crf 23 -threads 2 -c:a aac %s',
                     escapeshellarg((string) $clip['trim_start']),
                     escapeshellarg((string) $duration),
                     escapeshellarg($input),
@@ -201,7 +201,7 @@ class ProcessExportJob implements ShouldQueue
                     . "concat=n={$n}:v=1:a=1[v][concata];[concata][{$n}:a]amix=inputs=2:duration=first:dropout_transition=2[a]";
 
             $this->ffmpeg(sprintf(
-                '-y %s -i %s -filter_complex %s -map [v] -map [a] -c:v libx264 -preset fast -crf 23 -threads 2 -c:a aac %s',
+                '-y %s -stream_loop -1 -i %s -filter_complex %s -map [v] -map [a] -c:v libx264 -preset fast -crf 23 -threads 2 -c:a aac %s',
                 $inputs,
                 escapeshellarg($musicPath),
                 escapeshellarg($filter),
@@ -296,7 +296,7 @@ class ProcessExportJob implements ShouldQueue
         // ── Music mix (optional) ─────────────────────────────────────────────
         if ($musicPath !== null) {
             $musicIdx = $idx++;
-            $inputArgs .= ' -i ' . escapeshellarg($musicPath);
+            $inputArgs .= ' -stream_loop -1 -i ' . escapeshellarg($musicPath);
             $filterParts[] = "[{$outA}][{$musicIdx}:a]amix=inputs=2:duration=first:dropout_transition=2[mixeda]";
             $outA = 'mixeda';
         }
