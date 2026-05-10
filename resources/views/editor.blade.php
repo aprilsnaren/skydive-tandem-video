@@ -801,8 +801,10 @@
                         method:  'POST',
                         headers: {
                             'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                            'Content-Type': 'application/json',
                             'Accept':       'application/json',
                         },
+                        body: JSON.stringify({ guest_email: this.guestEmail.trim() }),
                     });
                     const data = await resp.json();
                     if (resp.ok) {

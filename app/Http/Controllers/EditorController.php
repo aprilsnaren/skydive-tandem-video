@@ -211,13 +211,14 @@ class EditorController extends Controller
     /**
      * Send the "video ready" email on explicit user request.
      */
-    public function sendEmail(string $uuid)
+    public function sendEmail(Request $request, string $uuid)
     {
+        $request->validate(['guest_email' => ['required', 'email', 'max:254']]);
+
         $export = Export::where('uuid', $uuid)->where('status', 'done')->firstOrFail();
 
-        if (! $export->guest_email) {
-            return response()->json(['error' => 'No email address on this export.'], 422);
-        }
+        // Persist the (possibly updated) email address on the export record.
+        $export->update(['guest_email' => $request->input('guest_email')]);
 
         $expiresDate = $export->expires_at
             ? $export->expires_at->isoFormat('D. MMMM YYYY')
