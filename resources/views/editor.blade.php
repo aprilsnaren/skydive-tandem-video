@@ -25,8 +25,9 @@
         /* Video preview */
         .clip-preview { width: 100%; border-radius: 0.5rem; background: #000; max-height: 220px; }
     </style>
+    <script>window.__editorInitial = @json($initial ?? null);</script>
 </head>
-<body class="bg-gray-950 text-white min-h-screen" x-data="editor(@json($initial ?? null))" x-cloak>
+<body class="bg-gray-950 text-white min-h-screen" x-data="editor(window.__editorInitial)" x-cloak>
 
     {{-- Header --}}
     <header class="brand-bg px-6 py-4 flex items-center gap-3 shadow-lg">
@@ -43,7 +44,7 @@
     {{-- -------------------------------------------------------------------- --}}
     {{-- LANDING: Upload drop zone — shown until uploads begin                 --}}
     {{-- -------------------------------------------------------------------- --}}
-    <div x-show="clips.length === 0 && pendingUploads.length === 0" class="flex flex-col items-center justify-center min-h-[80vh] px-4">
+    <div x-show="!isReturning && clips.length === 0 && pendingUploads.length === 0" class="flex flex-col items-center justify-center min-h-[80vh] px-4">
         <h1 class="text-3xl font-bold mb-2">Create a tandem video</h1>
         <p class="text-gray-400 mb-10 text-center max-w-md">Upload your clips, trim them, add music, and share with your guest.</p>
 
@@ -89,7 +90,7 @@
     {{-- EDITOR: shown as soon as uploads start (clips list may be empty while --}}
     {{--         files are still uploading)                                    --}}
     {{-- -------------------------------------------------------------------- --}}
-    <main x-show="clips.length > 0 || pendingUploads.length > 0" class="max-w-3xl mx-auto px-4 py-8 space-y-6">
+    <main x-show="isReturning || clips.length > 0 || pendingUploads.length > 0" class="max-w-3xl mx-auto px-4 py-8 space-y-6">
 
         {{-- ---------------------------------------------------------------- --}}
         {{-- Step 1: Clips — trim + preview + reorder                         --}}
@@ -440,6 +441,7 @@
 
     function editor(initial) {
         return {
+            isReturning:    initial?.isReturning ?? false,
             clips: (initial?.clips || []).map(c => ({
                 uuid:           c.uuid,
                 original_name:  c.original_name,

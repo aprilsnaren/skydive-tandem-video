@@ -64,14 +64,30 @@ class EditorController extends Controller
     {
         $export = Export::where('uuid', $uuid)->firstOrFail();
 
-        $initial = null;
+        // Always build initial state — even if clips_config is missing (old exports).
+        $clips = [];
+        $musicUuid = null;
+        $music     = null;
+        $logoUuid  = null;
+        $logo      = null;
 
         if ($export->clips_config) {
-            $config = $export->clips_config;
-            $clips  = [];
+            $config    = $export->clips_config;
+            $musicUuid = $config['music_uuid'] ?? null;
+            $music     = isset($config['music_name']) ? ['name' => $config['music_name']] : null;
+            $logoUuid  = $config['logo_uuid'] ?? null;
+
+            if ($logoUuid) {
+                $logoUpload     = Upload::where('uuid', $logoUuid)->first();
+                $logoFileExists = $logoUpload && file_exists(storage_path("app/{$logoUpload->path}"));
+                $logo = [
+                    'name'     => $config['logo_name'] ?? 'logo',
+                    'localUrl' => $logoFileExists ? route('uploads.stream', $logoUuid) : null,
+                ];
+            }
 
             foreach ($config['clips'] ?? [] as $clip) {
-                $upload    = Upload::where('uuid', $clip['uuid'])->first();
+                $upload     = Upload::where('uuid', $clip['uuid'])->first();
                 $fileExists = $upload && file_exists(storage_path("app/{$upload->path}"));
 
                 $clips[] = [
@@ -85,41 +101,33 @@ class EditorController extends Controller
                     'fileExpired'   => !$fileExists,
                 ];
             }
+        }
 
-            $logoUuid = $config['logo_uuid'] ?? null;
-            $logoUpload = $logoUuid ? Upload::where('uuid', $logoUuid)->first() : null;
-            $logoFileExists = $logoUpload && file_exists(storage_path("app/{$logoUpload->path}"));
+        $initial = [
+            'isReturning' => true,
+            'clips'       => $clips,
+            'guestName'   => $export->guest_name ?? '',
+            'guestEmail'  => $export->guest_email ?? '',
+            'musicUuid'   => $musicUuid,
+            'music'       => $music,
+            'logoUuid'    => $logoUuid,
+            'logo'        => $logo,
+        ];
 
-            $initial = [
-                'clips'     => $clips,
-                'guestName' => $export->guest_name ?? '',
-                'guestEmail'=> $export->guest_email ?? '',
-                'musicUuid' => $config['music_uuid'] ?? null,
-                'music'     => isset($config['music_name']) ? ['name' => $config['music_name']] : null,
-                'logoUuid'  => $logoUuid,
-                'logo'      => $logoUuid
-                    ? [
-                        'name'     => $config['logo_name'] ?? 'logo',
-                        'localUrl' => $logoFileExists ? route('uploads.stream', $logoUuid) : null,
-                    ]
-                    : null,
-            ];
+        if ($export->isDone() && $export->path) {
+            $initial['exportUuid'] = $export->uuid;
+            $initial['shareUrl']   = route('share', $export->uuid);
+            $initial['videoUrl']   = route('share.video', $export->uuid);
+        }
 
-            if ($export->isDone() && $export->path) {
-                $initial['exportUuid'] = $export->uuid;
-                $initial['shareUrl']   = route('share', $export->uuid);
-                $initial['videoUrl']   = route('share.video', $export->uuid);
-            }
+        if ($export->isFailed()) {
+            $initial['exportUuid']   = $export->uuid;
+            $initial['exportFailed'] = true;
+            $initial['exportErrMsg'] = $export->error_message;
+        }
 
-            if ($export->isFailed()) {
-                $initial['exportUuid']   = $export->uuid;
-                $initial['exportFailed'] = true;
-                $initial['exportErrMsg'] = $export->error_message;
-            }
-
-            if (in_array($export->status, ['pending', 'processing'])) {
-                $initial['exportUuid'] = $export->uuid;
-            }
+        if (in_array($export->status, ['pending', 'processing'])) {
+            $initial['exportUuid'] = $export->uuid;
         }
 
         return view('editor', compact('initial'));
