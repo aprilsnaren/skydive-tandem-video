@@ -96,6 +96,9 @@ class EditorController extends Controller
                     'localUrl'      => $fileExists ? route('uploads.stream', $clip['uuid']) : null,
                     'trim_start'    => (float) ($clip['trim_start'] ?? 0),
                     'trim_end'      => (float) ($clip['trim_end'] ?? 0),
+                    'audio_mode'    => $clip['audio_mode']  ?? 'full',
+                    'audio_start'   => isset($clip['audio_start']) ? (float) $clip['audio_start'] : 0,
+                    'audio_end'     => isset($clip['audio_end'])   ? (float) $clip['audio_end']   : 0,
                     'nativeDuration'=> null,
                     'trimError'     => null,
                     'fileExpired'   => !$fileExists,
@@ -288,14 +291,17 @@ class EditorController extends Controller
     public function export(Request $request)
     {
         $request->validate([
-            'clips'              => ['required', 'array', 'min:1'],
-            'clips.*.uuid'       => ['required', 'string', 'exists:uploads,uuid'],
-            'clips.*.trim_start' => ['required', 'numeric', 'min:0'],
-            'clips.*.trim_end'   => ['required', 'numeric', 'gt:clips.*.trim_start'],
-            'music_uuid'         => ['nullable', 'string', 'exists:uploads,uuid'],
-            'logo_uuid'          => ['nullable', 'string', 'exists:uploads,uuid'],
-            'guest_name'         => ['nullable', 'string', 'max:100'],
-            'guest_email'        => ['nullable', 'email', 'max:254'],
+            'clips'                => ['required', 'array', 'min:1'],
+            'clips.*.uuid'         => ['required', 'string', 'exists:uploads,uuid'],
+            'clips.*.trim_start'   => ['required', 'numeric', 'min:0'],
+            'clips.*.trim_end'     => ['required', 'numeric', 'gt:clips.*.trim_start'],
+            'clips.*.audio_mode'   => ['nullable', 'in:full,muted,range'],
+            'clips.*.audio_start'  => ['nullable', 'numeric', 'min:0'],
+            'clips.*.audio_end'    => ['nullable', 'numeric', 'min:0'],
+            'music_uuid'           => ['nullable', 'string', 'exists:uploads,uuid'],
+            'logo_uuid'            => ['nullable', 'string', 'exists:uploads,uuid'],
+            'guest_name'           => ['nullable', 'string', 'max:100'],
+            'guest_email'          => ['nullable', 'email', 'max:254'],
         ]);
 
         $clips     = $request->input('clips');
@@ -310,6 +316,9 @@ class EditorController extends Controller
                     'original_name' => Upload::where('uuid', $c['uuid'])->value('original_name') ?? '',
                     'trim_start'    => (float) $c['trim_start'],
                     'trim_end'      => (float) $c['trim_end'],
+                    'audio_mode'    => $c['audio_mode']  ?? 'full',
+                    'audio_start'   => isset($c['audio_start']) ? (float) $c['audio_start'] : null,
+                    'audio_end'     => isset($c['audio_end'])   ? (float) $c['audio_end']   : null,
                 ];
             }, $clips),
             'music_uuid' => $musicUuid,

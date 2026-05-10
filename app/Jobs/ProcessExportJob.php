@@ -126,16 +126,28 @@ class ProcessExportJob implements ShouldQueue
             $upload   = Upload::where('uuid', $clip['uuid'])->firstOrFail();
             $input    = $this->storagePath($upload->path);
             $duration = (float) $clip['trim_end'] - (float) $clip['trim_start'];
+            $audioF   = $this->audioFilter($clip);
 
             if ($musicPath) {
-                // Combine trim + scale + music mix in one pass (no intermediate file)
-                $filter = "[0:v]{$normalize}[v];[0:a][1:a]amix=inputs=2:duration=first:dropout_transition=2[a]";
+                // Build audio chain: optionally apply volume filter first, then amix
+                $aIn = $audioF ? "[0:a]{$audioF}[clipA];[clipA]" : '[0:a]';
+                $filter = "[0:v]{$normalize}[v];{$aIn}[1:a]amix=inputs=2:duration=first:dropout_transition=2[a]";
                 $this->ffmpeg(sprintf(
                     '-y -ss %s -t %s -i %s -i %s -filter_complex %s -map [v] -map [a] -c:v libx264 -preset fast -crf 23 -threads 2 -c:a aac %s',
                     escapeshellarg((string) $clip['trim_start']),
                     escapeshellarg((string) $duration),
                     escapeshellarg($input),
                     escapeshellarg($musicPath),
+                    escapeshellarg($filter),
+                    escapeshellarg($outputPath),
+                ));
+            } elseif ($audioF !== null) {
+                $filter = "[0:v]{$normalize}[v];[0:a]{$audioF}[a]";
+                $this->ffmpeg(sprintf(
+                    '-y -ss %s -t %s -i %s -filter_complex %s -map [v] -map [a] -c:v libx264 -preset fast -crf 23 -threads 2 -c:a aac %s',
+                    escapeshellarg((string) $clip['trim_start']),
+                    escapeshellarg((string) $duration),
+                    escapeshellarg($input),
                     escapeshellarg($filter),
                     escapeshellarg($outputPath),
                 ));
@@ -172,8 +184,14 @@ class ProcessExportJob implements ShouldQueue
                 escapeshellarg($input),
             );
 
+            $audioF = $this->audioFilter($clip);
             $scaleFilters .= "[{$i}:v]{$normalize}[v{$i}];";
-            $concatStreams .= "[v{$i}][{$i}:a]";
+            if ($audioF !== null) {
+                $scaleFilters .= "[{$i}:a]{$audioF}[a{$i}];";
+                $concatStreams .= "[v{$i}][a{$i}]";
+            } else {
+                $concatStreams .= "[v{$i}][{$i}:a]";
+            }
         }
 
         if ($musicPath) {
@@ -224,8 +242,7 @@ class ProcessExportJob implements ShouldQueue
         $idx         = 0;
 
         // ── Clip inputs ──────────────────────────────────────────────────────
-        $clipV = '';
-        $clipA = '';
+        $concatInputs = ''; // interleaved [cvN][caN] pairs for the concat filter
         foreach ($clips as $clip) {
             $upload = Upload::where('uuid', $clip['uuid'])->firstOrFail();
             $path   = $this->storagePath($upload->path);
@@ -239,13 +256,18 @@ class ProcessExportJob implements ShouldQueue
                 escapeshellarg($path),
             );
             $filterParts[] = "[{$idx}:v]{$normalize}[cv{$idx}]";
-            $clipV .= "[cv{$idx}]";
-            $clipA .= "[{$idx}:a]";
+            $audioF = $this->audioFilter($clip);
+            if ($audioF !== null) {
+                $filterParts[] = "[{$idx}:a]{$audioF}[ca{$idx}]";
+                $concatInputs .= "[cv{$idx}][ca{$idx}]";
+            } else {
+                $concatInputs .= "[cv{$idx}][{$idx}:a]";
+            }
             $idx++;
         }
 
         // Concatenate clips → [joinv][joina]
-        $filterParts[] = "{$clipV}{$clipA}concat=n={$n}:v=1:a=1[joinv][joina]";
+        $filterParts[] = "{$concatInputs}concat=n={$n}:v=1:a=1[joinv][joina]";
         $outV = 'joinv';
         $outA = 'joina';
 
@@ -289,6 +311,36 @@ class ProcessExportJob implements ShouldQueue
             $outA,
             escapeshellarg($outputPath),
         ));
+    }
+
+    /**
+     * Build a volume filter string for a clip's audio track, or null if no filter needed.
+     *
+     * audio_mode:
+     *   'full'  — pass through unchanged (no filter)
+     *   'muted' — silence the entire track
+     *   'range' — keep audio only between audio_start and audio_end (seconds within
+     *             the trimmed clip), silence everything outside that window
+     *
+     * FFmpeg volume expression uses gte/lte to avoid commas inside between().
+     * The backslash before each comma escapes it for filter_complex parsing.
+     */
+    private function audioFilter(array $clip): ?string
+    {
+        $mode = $clip['audio_mode'] ?? 'full';
+
+        if ($mode === 'muted') {
+            return 'volume=0';
+        }
+
+        if ($mode === 'range') {
+            $s = round((float) ($clip['audio_start'] ?? 0), 3);
+            $e = round((float) ($clip['audio_end']   ?? PHP_INT_MAX), 3);
+            // gte(t\,START)*lte(t\,END) evaluates to 1 inside the window, 0 outside
+            return "volume='gte(t\\,{$s})*lte(t\\,{$e})':eval=frame";
+        }
+
+        return null; // 'full' — no filter
     }
 
     private function finalEncode(string $inputPath, string $outputPath): void

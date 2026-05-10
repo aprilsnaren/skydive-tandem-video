@@ -216,6 +216,57 @@
                                 Clip length after trim:
                                 <span class="text-white font-medium" x-text="formatDuration(Math.max(0, clip.trim_end - clip.trim_start))"></span>
                             </p>
+
+                            {{-- Audio controls --}}
+                            <div class="pt-1 space-y-2">
+                                <p class="text-xs text-gray-500 mb-1">Audio</p>
+                                <div class="flex gap-2">
+                                    <template x-for="mode in ['full','muted','range']" :key="mode">
+                                        <button
+                                            type="button"
+                                            @click="
+                                                if (mode === 'range' && clip.audio_mode !== 'range') {
+                                                    clip.audio_start = 0;
+                                                    clip.audio_end   = Math.max(0, clip.trim_end - clip.trim_start);
+                                                }
+                                                clip.audio_mode = mode;
+                                            "
+                                            :class="clip.audio_mode === mode
+                                                ? 'brand-bg text-white border-transparent'
+                                                : 'bg-gray-800 text-gray-400 border-gray-700 hover:border-gray-500'"
+                                            class="flex-1 py-1 px-2 rounded-lg border text-xs font-medium transition capitalize"
+                                            x-text="mode === 'full' ? 'Full' : mode === 'muted' ? 'Muted' : 'Range'"
+                                        ></button>
+                                    </template>
+                                </div>
+
+                                <div x-show="clip.audio_mode === 'range'" class="grid grid-cols-2 gap-3 pt-1">
+                                    <div>
+                                        <label class="text-xs text-gray-500 block mb-1">
+                                            Audio start (s)
+                                            <span class="brand-text ml-1" x-text="clip.audio_start.toFixed(1)"></span>
+                                        </label>
+                                        <input
+                                            type="range" min="0" step="0.1"
+                                            :max="Math.max(0, clip.trim_end - clip.trim_start)"
+                                            x-model.number="clip.audio_start"
+                                            class="w-full"
+                                        >
+                                    </div>
+                                    <div>
+                                        <label class="text-xs text-gray-500 block mb-1">
+                                            Audio end (s)
+                                            <span class="brand-text ml-1" x-text="clip.audio_end.toFixed(1)"></span>
+                                        </label>
+                                        <input
+                                            type="range" min="0" step="0.1"
+                                            :max="Math.max(0, clip.trim_end - clip.trim_start)"
+                                            x-model.number="clip.audio_end"
+                                            class="w-full"
+                                        >
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </li>
                 </template>
@@ -448,6 +499,9 @@
                 localUrl:       c.localUrl ?? null,
                 trim_start:     c.trim_start ?? 0,
                 trim_end:       c.trim_end ?? 0,
+                audio_mode:     c.audio_mode  ?? 'full',
+                audio_start:    c.audio_start ?? 0,
+                audio_end:      c.audio_end   ?? 0,
                 nativeDuration: null,
                 trimError:      null,
                 fileExpired:    c.fileExpired ?? false,
@@ -569,6 +623,9 @@
                                     localUrl:       localUrl,
                                     trim_start:     0,
                                     trim_end:       30,
+                                    audio_mode:     'full',
+                                    audio_start:    0,
+                                    audio_end:      0,
                                     nativeDuration: null,
                                     trimError:      null,
                                 });
@@ -724,7 +781,14 @@
 
                 try {
                     const payload = {
-                        clips:       this.clips.map(c => ({ uuid: c.uuid, trim_start: c.trim_start, trim_end: c.trim_end })),
+                        clips:       this.clips.map(c => ({
+                            uuid:        c.uuid,
+                            trim_start:  c.trim_start,
+                            trim_end:    c.trim_end,
+                            audio_mode:  c.audio_mode  ?? 'full',
+                            audio_start: c.audio_start ?? 0,
+                            audio_end:   c.audio_end   ?? 0,
+                        })),
                         music_uuid:  this.musicUuid ?? null,
                         logo_uuid:   this.logoUuid ?? null,
                         guest_name:  this.guestName.trim() || null,
