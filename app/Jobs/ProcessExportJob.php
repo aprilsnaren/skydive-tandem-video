@@ -131,7 +131,16 @@ class ProcessExportJob implements ShouldQueue
             if ($musicPath) {
                 // Build audio chain: optionally apply volume filter first, then amix
                 $aIn = $audioF ? "[0:a]{$audioF}[clipA];[clipA]" : '[0:a]';
-                $filter = "[0:v]{$normalize}[v];{$aIn}[1:a]amix=inputs=2:duration=first:dropout_transition=2[a]";
+                // Duck music to 50% when the clip has its own audio (full or range)
+                $hasVideoAudio = ($clip['audio_mode'] ?? 'full') !== 'muted';
+                if ($hasVideoAudio) {
+                    $musicFilter = '[1:a]volume=0.5[musicA]';
+                    $musicIn     = '[musicA]';
+                } else {
+                    $musicFilter = '';
+                    $musicIn     = '[1:a]';
+                }
+                $filter = "[0:v]{$normalize}[v];" . ($hasVideoAudio ? "{$musicFilter};" : '') . "{$aIn}{$musicIn}amix=inputs=2:duration=first:dropout_transition=2[a]";
                 $this->ffmpeg(sprintf(
                     '-y -ss %s -t %s -i %s -stream_loop -1 -i %s -filter_complex %s -map [v] -map [a] -c:v libx264 -preset fast -crf 23 -threads 2 -c:a aac %s',
                     escapeshellarg((string) $clip['trim_start']),
@@ -196,9 +205,18 @@ class ProcessExportJob implements ShouldQueue
 
         if ($musicPath) {
             // Music is appended as input index $n; concat audio is piped into amix
+            // Duck music to 50% when any clip has its own audio (full or range)
+            $hasVideoAudio = collect($clips)->contains(fn($c) => ($c['audio_mode'] ?? 'full') !== 'muted');
+            if ($hasVideoAudio) {
+                $musicFilter = "[{$n}:a]volume=0.5[musicA];";
+                $musicIn     = '[musicA]';
+            } else {
+                $musicFilter = '';
+                $musicIn     = "[{$n}:a]";
+            }
             $filter = $scaleFilters
                     . $concatStreams
-                    . "concat=n={$n}:v=1:a=1[v][concata];[concata][{$n}:a]amix=inputs=2:duration=first:dropout_transition=2[a]";
+                    . "concat=n={$n}:v=1:a=1[v][concata];{$musicFilter}[concata]{$musicIn}amix=inputs=2:duration=first:dropout_transition=2[a]";
 
             $this->ffmpeg(sprintf(
                 '-y %s -stream_loop -1 -i %s -filter_complex %s -map [v] -map [a] -c:v libx264 -preset fast -crf 23 -threads 2 -c:a aac %s',
@@ -297,7 +315,14 @@ class ProcessExportJob implements ShouldQueue
         if ($musicPath !== null) {
             $musicIdx = $idx++;
             $inputArgs .= ' -stream_loop -1 -i ' . escapeshellarg($musicPath);
-            $filterParts[] = "[{$outA}][{$musicIdx}:a]amix=inputs=2:duration=first:dropout_transition=2[mixeda]";
+            // Duck music to 50% when any clip has its own audio (full or range)
+            $hasVideoAudio = collect($clips)->contains(fn($c) => ($c['audio_mode'] ?? 'full') !== 'muted');
+            if ($hasVideoAudio) {
+                $filterParts[] = "[{$musicIdx}:a]volume=0.5[musicA]";
+                $filterParts[] = "[{$outA}][musicA]amix=inputs=2:duration=first:dropout_transition=2[mixeda]";
+            } else {
+                $filterParts[] = "[{$outA}][{$musicIdx}:a]amix=inputs=2:duration=first:dropout_transition=2[mixeda]";
+            }
             $outA = 'mixeda';
         }
 

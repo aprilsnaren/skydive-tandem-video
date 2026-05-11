@@ -158,14 +158,22 @@
 
                         {{-- Video preview --}}
                         <div class="px-4 pb-3">
-                            <video
-                                x-show="!clip.fileExpired"
-                                class="clip-preview"
-                                preload="metadata"
-                                :src="clip.localUrl"
-                                @loadedmetadata="onVideoLoaded($event, clip)"
-                                @timeupdate="onTimeUpdate($event, clip)"
-                            ></video>
+                            <div x-show="!clip.fileExpired" class="relative">
+                                <video
+                                    class="clip-preview"
+                                    preload="metadata"
+                                    controls
+                                    :src="clip.localUrl"
+                                    @loadedmetadata="onVideoLoaded($event, clip)"
+                                    @timeupdate="onTimeUpdate($event, clip)"
+                                ></video>
+                                <div
+                                    x-show="clip.nativeDuration"
+                                    class="absolute top-2 right-2 bg-black/70 text-white text-xs font-mono px-2 py-0.5 rounded pointer-events-none select-none"
+                                >
+                                    <span x-text="formatTime(clip.currentTime ?? 0)"></span><span class="text-gray-400"> / </span><span x-text="formatTime(Math.max(0, clip.trim_end - clip.trim_start))"></span>
+                                </div>
+                            </div>
                             <p x-show="clip.fileExpired" class="text-yellow-500/80 text-xs py-2">
                                 Original file has been pruned — preview unavailable. Trim values are preserved.
                             </p>
@@ -191,7 +199,7 @@
                                         type="range" min="0" step="0.1"
                                         :max="clip.nativeDuration || 3600"
                                         x-model.number="clip.trim_start"
-                                        @input="onTrimChange(clip, $el.closest('li').querySelector('video'))"
+                                        @input="onTrimChange(clip, $el.closest('li').querySelector('video'), 'start')"
                                         class="w-full"
                                     >
                                 </div>
@@ -204,7 +212,7 @@
                                         type="range" min="0" step="0.1"
                                         :max="clip.nativeDuration || 3600"
                                         x-model.number="clip.trim_end"
-                                        @input="onTrimChange(clip, $el.closest('li').querySelector('video'))"
+                                        @input="onTrimChange(clip, $el.closest('li').querySelector('video'), 'end')"
                                         class="w-full"
                                     >
                                 </div>
@@ -503,6 +511,8 @@
                 audio_start:    c.audio_start ?? 0,
                 audio_end:      c.audio_end   ?? 0,
                 nativeDuration: null,
+                currentTime:    0,
+                trimEndSet:     true,  // restored — keep saved value
                 trimError:      null,
                 fileExpired:    c.fileExpired ?? false,
             })),
@@ -627,6 +637,8 @@
                                     audio_start:    0,
                                     audio_end:      0,
                                     nativeDuration: null,
+                                    currentTime:    0,
+                                    trimEndSet:     false, // new — let duration fill it
                                     trimError:      null,
                                 });
                             } else {
@@ -650,28 +662,38 @@
             },
 
             // ----------------------------------------------------------------
-            // Video metadata loaded — set trim_end to actual duration
+            // Video metadata loaded — set trim_end to actual duration for new clips
             // ----------------------------------------------------------------
             onVideoLoaded(event, clip) {
                 const dur = event.target.duration;
                 if (!isFinite(dur)) return;
                 clip.nativeDuration = dur;
-                clip.trim_end = parseFloat(dur.toFixed(1));
+                if (!clip.trimEndSet) {
+                    // Fresh upload: use actual duration as default trim_end
+                    clip.trim_end  = parseFloat(dur.toFixed(1));
+                    clip.trimEndSet = true;
+                }
             },
 
-            onTrimChange(clip, videoEl) {
+            onTrimChange(clip, videoEl, which = 'start') {
                 if (clip.trim_start >= clip.trim_end) {
                     clip.trimError = 'Trim start must be before trim end.';
                 } else {
                     clip.trimError = null;
                 }
-                if (videoEl) videoEl.currentTime = clip.trim_start;
+                if (videoEl) {
+                    const seekTo = which === 'end' ? clip.trim_end : clip.trim_start;
+                    videoEl.currentTime = seekTo;
+                    clip.currentTime = Math.max(0, seekTo - clip.trim_start);
+                }
             },
 
             onTimeUpdate(event, clip) {
+                clip.currentTime = Math.max(0, event.target.currentTime - clip.trim_start);
                 if (event.target.currentTime >= clip.trim_end) {
                     event.target.pause();
                     event.target.currentTime = clip.trim_start;
+                    clip.currentTime = 0;
                 }
             },
 
@@ -869,6 +891,13 @@
                 const m = Math.floor(seconds / 60);
                 const s = Math.floor(seconds % 60);
                 return m > 0 ? `${m}m ${s}s` : `${s}s`;
+            },
+
+            formatTime(seconds) {
+                if (!seconds || isNaN(seconds)) return '0:00';
+                const m = Math.floor(seconds / 60);
+                const s = Math.floor(seconds % 60);
+                return `${m}:${String(s).padStart(2, '0')}`;
             },
 
             formatElapsed(seconds) {

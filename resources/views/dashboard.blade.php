@@ -117,6 +117,21 @@
                             >
                                 Open
                             </a>
+
+                            <form
+                                method="POST"
+                                action="{{ route('export.destroy', $export->uuid) }}"
+                                onsubmit="return confirm('Delete this project? This cannot be undone.')"
+                            >
+                                @csrf
+                                @method('DELETE')
+                                <button
+                                    type="submit"
+                                    class="text-xs text-gray-500 hover:text-red-400 transition bg-gray-800 hover:bg-gray-700 px-3 py-1.5 rounded-lg"
+                                >
+                                    Delete
+                                </button>
+                            </form>
                         </div>
 
                     </div>

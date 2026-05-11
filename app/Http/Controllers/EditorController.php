@@ -347,6 +347,25 @@ class EditorController extends Controller
     }
 
     /**
+     * Delete a project and its output video file.
+     */
+    public function destroy(string $uuid)
+    {
+        $export = Export::where('uuid', $uuid)->firstOrFail();
+
+        if ($export->path) {
+            $fullPath = storage_path('app/' . $export->path);
+            if (file_exists($fullPath)) {
+                @unlink($fullPath);
+            }
+        }
+
+        $export->delete();
+
+        return redirect()->route('dashboard');
+    }
+
+    /**
      * Poll endpoint: returns current status of an export.
      */
     public function status(string $uuid)
