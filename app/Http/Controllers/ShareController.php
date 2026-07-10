@@ -56,6 +56,41 @@ class ShareController extends Controller
     }
 
     /**
+     * Download all end photos as a single zip file.
+     */
+    public function imagesDownloadAll(string $uuid)
+    {
+        $export = Export::where('uuid', $uuid)
+            ->where('status', 'done')
+            ->firstOrFail();
+
+        $images = $export->downloadableImages();
+
+        abort_if(empty($images), 404);
+
+        $base = $export->guest_name
+            ? \Illuminate\Support\Str::slug($export->guest_name)
+            : 'tandem';
+
+        @mkdir(storage_path('app/tmp'), 0755, true);
+        $zipPath = storage_path('app/tmp/' . $export->uuid . '_photos.zip');
+
+        $zip = new \ZipArchive();
+        if ($zip->open($zipPath, \ZipArchive::CREATE | \ZipArchive::OVERWRITE) !== true) {
+            abort(500, 'Could not create zip file.');
+        }
+
+        foreach ($images as $i => $image) {
+            $ext = strtolower(pathinfo($image['path'], PATHINFO_EXTENSION)) ?: 'jpg';
+            $zip->addFile(storage_path('app/' . $image['path']), 'photo-' . ($i + 1) . '.' . $ext);
+        }
+
+        $zip->close();
+
+        return response()->download($zipPath, $base . '-photos.zip')->deleteFileAfterSend(true);
+    }
+
+    /**
      * Look up a downloadable end photo by export UUID and image index.
      * 404s unless the export is done, downloads are enabled, and the file exists.
      */

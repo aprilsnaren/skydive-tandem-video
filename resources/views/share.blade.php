@@ -38,7 +38,20 @@
 
             @if (!empty($images))
                 <div class="pt-6 space-y-4">
-                    <h2 class="text-lg font-semibold text-center text-white/80">Billeder</h2>
+                    <div class="flex items-center justify-between gap-3">
+                        <h2 class="text-lg font-semibold text-white/80">Billeder</h2>
+                        @if (count($images) > 1)
+                            <a
+                                href="{{ route('share.images.downloadAll', $export->uuid) }}"
+                                class="inline-flex items-center gap-1.5 bg-white/10 hover:bg-white/20 text-white text-xs font-medium px-3 py-2 rounded-lg transition shrink-0"
+                            >
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                                </svg>
+                                Download alle
+                            </a>
+                        @endif
+                    </div>
                     <div class="grid grid-cols-2 sm:grid-cols-3 gap-4">
                         @foreach ($images as $image)
                             <div class="space-y-2">
