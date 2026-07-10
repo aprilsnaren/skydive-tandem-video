@@ -317,10 +317,87 @@
         </section>
 
         {{-- ---------------------------------------------------------------- --}}
-        {{-- Step 3: Logo                                                      --}}
+        {{-- Step 3: End photos                                                --}}
+        {{-- ---------------------------------------------------------------- --}}
+        <section class="bg-gray-900 rounded-2xl p-6 space-y-4">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h2 class="text-lg font-semibold">3. Photos <span class="text-gray-500 text-sm font-normal">(optional)</span></h2>
+                    <p class="text-gray-500 text-sm mt-0.5">Shown at the end of the video, before the logo end card, and/or offered as separate downloads.</p>
+                </div>
+
+                {{-- Add photos button --}}
+                <label class="cursor-pointer text-sm brand-text hover:opacity-80 transition flex items-center gap-1.5 shrink-0" :class="{'opacity-50 pointer-events-none': imageUploading}">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                    </svg>
+                    Add photos
+                    <input type="file" multiple accept="image/png,image/jpeg,image/webp" class="hidden" @change="addImages($event)" :disabled="imageUploading">
+                </label>
+            </div>
+
+            <p x-show="imageUploading" class="text-gray-400 text-sm animate-pulse">Uploading photos…</p>
+            <p x-show="imageError" x-text="imageError" class="text-red-400 text-sm"></p>
+
+            {{-- Photo grid with reorder/remove --}}
+            <div x-show="images.length" class="grid grid-cols-3 sm:grid-cols-4 gap-3">
+                <template x-for="(img, i) in images" :key="img.uuid">
+                    <div class="bg-gray-800 rounded-lg overflow-hidden">
+                        <template x-if="img.localUrl">
+                            <img :src="img.localUrl" class="w-full h-24 object-cover" :alt="img.original_name">
+                        </template>
+                        <template x-if="!img.localUrl">
+                            <div class="w-full h-24 flex items-center justify-center text-yellow-500/80 text-xs text-center px-2">
+                                File pruned — re-upload to include
+                            </div>
+                        </template>
+                        <div class="flex items-center justify-between px-1.5 py-1">
+                            <button @click="moveImageLeft(i)" :disabled="i === 0" class="text-gray-500 hover:text-white disabled:opacity-20 transition p-0.5" title="Move earlier">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                            </button>
+                            <span class="text-[10px] text-gray-500" x-text="i + 1"></span>
+                            <button @click="moveImageRight(i)" :disabled="i === images.length - 1" class="text-gray-500 hover:text-white disabled:opacity-20 transition p-0.5" title="Move later">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                            </button>
+                            <button @click="removeImage(i)" class="text-gray-500 hover:text-red-400 transition p-0.5" title="Remove photo">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                </template>
+            </div>
+
+            {{-- Photo settings --}}
+            <div x-show="images.length" class="space-y-3 pt-1">
+                <label class="flex items-center gap-2.5 text-sm text-gray-300 cursor-pointer">
+                    <input type="checkbox" x-model="imagesInVideo" class="w-4 h-4 accent-[color:var(--brand)]">
+                    Include photos at the end of the video
+                </label>
+
+                <div x-show="imagesInVideo" class="flex items-center gap-2 text-sm text-gray-400 pl-7">
+                    Show each photo for
+                    <input
+                        type="number" min="1" max="60" step="1"
+                        x-model.number="imageDuration"
+                        class="w-16 bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-sm text-white text-center focus:outline-none focus:border-[color:var(--brand)] transition"
+                    >
+                    seconds
+                </div>
+
+                <p x-show="imagesInVideo && images.length > maxImagesInVideo" class="text-yellow-500/80 text-xs pl-7" x-text="`Only the first ${maxImagesInVideo} photos will appear in the video — the rest will still be downloadable if enabled below.`"></p>
+
+                <label class="flex items-center gap-2.5 text-sm text-gray-300 cursor-pointer">
+                    <input type="checkbox" x-model="imagesDownloadable" class="w-4 h-4 accent-[color:var(--brand)]">
+                    Let the guest download the photos separately on the share page
+                </label>
+            </div>
+        </section>
+
+        {{-- ---------------------------------------------------------------- --}}
+        {{-- Step 4: Logo                                                      --}}
         {{-- ---------------------------------------------------------------- --}}
         <section class="bg-gray-900 rounded-2xl p-6 space-y-3">
-            <h2 class="text-lg font-semibold">3. Logo <span class="text-gray-500 text-sm font-normal">(optional — burned into video)</span></h2>
+            <h2 class="text-lg font-semibold">4. Logo <span class="text-gray-500 text-sm font-normal">(optional — burned into video)</span></h2>
 
             <label
                 class="flex items-center gap-4 border border-gray-700 rounded-xl px-4 py-3 cursor-pointer hover:border-[color:var(--brand)] transition"
@@ -352,10 +429,10 @@
         </section>
 
         {{-- ---------------------------------------------------------------- --}}
-        {{-- Step 4: Export + stats                                            --}}
+        {{-- Step 5: Export + stats                                            --}}
         {{-- ---------------------------------------------------------------- --}}
         <section class="bg-gray-900 rounded-2xl p-6 space-y-4">
-            <h2 class="text-lg font-semibold">4. Export</h2>
+            <h2 class="text-lg font-semibold">5. Export</h2>
 
             {{-- Guest name --}}
             <div>
@@ -396,8 +473,10 @@
                 </div>
             </div>
 
-            <p class="text-gray-500 text-xs">
-                <span x-show="music" class="text-green-400"> Background music included.</span>
+            <p class="text-gray-500 text-xs space-x-2">
+                <span x-show="music" class="text-green-400">Background music included.</span>
+                <span x-show="images.length && imagesInVideo" class="text-green-400" x-text="`${images.length} photo${images.length === 1 ? '' : 's'} appended to the video.`"></span>
+                <span x-show="images.length && imagesDownloadable" class="text-green-400">Photos downloadable on the share page.</span>
             </p>
 
             <p x-show="exportError" x-text="exportError" class="text-red-400 text-sm"></p>
@@ -405,7 +484,7 @@
             {{-- Export button --}}
             <button
                 @click="startExport()"
-                :disabled="exporting || pendingUploads.length > 0 || clips.length === 0"
+                :disabled="exporting || pendingUploads.length > 0 || imageUploading || clips.length === 0"
                 class="w-full brand-bg text-white font-semibold py-3 rounded-xl hover:opacity-90 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
                 <svg x-show="exporting" class="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
@@ -529,6 +608,19 @@
             logoUuid:       initial?.logoUuid ?? null,
             logoUploading:  false,
 
+            images: (initial?.images || []).map(i => ({
+                uuid:          i.uuid,
+                original_name: i.original_name,
+                localUrl:      i.localUrl ?? null,
+                fileExpired:   i.fileExpired ?? false,
+            })),
+            imagesInVideo:      initial?.imagesInVideo ?? true,
+            imageDuration:      initial?.imageDuration ?? {{ (int) config('videoedit.image_duration', 5) }},
+            imagesDownloadable: initial?.imagesDownloadable ?? false,
+            imageUploading:     false,
+            imageError:         null,
+            maxImagesInVideo:   {{ (int) config('videoedit.max_images_in_video', 30) }},
+
             exporting:      false,
             exportUuid:     initial?.exportUuid ?? null,
             exportError:    null,
@@ -558,7 +650,10 @@
             // Computed
             // ----------------------------------------------------------------
             get totalDuration() {
-                return this.clips.reduce((sum, c) => sum + Math.max(0, c.trim_end - c.trim_start), 0);
+                const clipsTotal  = this.clips.reduce((sum, c) => sum + Math.max(0, c.trim_end - c.trim_start), 0);
+                const imagesInVideoCount = Math.min(this.images.length, this.maxImagesInVideo);
+                const imagesTotal = this.imagesInVideo ? imagesInVideoCount * Math.max(1, this.imageDuration || 5) : 0;
+                return clipsTotal + imagesTotal;
             },
 
             get estimatedSize() {
@@ -765,6 +860,66 @@
             },
 
             // ----------------------------------------------------------------
+            // End photos upload
+            // ----------------------------------------------------------------
+            async addImages(event) {
+                const files = Array.from(event.target.files);
+                event.target.value = '';
+                if (!files.length) return;
+
+                this.imageUploading = true;
+                this.imageError     = null;
+
+                try {
+                    for (const file of files) {
+                        const form = new FormData();
+                        form.append('image', file);
+
+                        const resp = await fetch('/upload/image', {
+                            method:  'POST',
+                            headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content },
+                            body:    form,
+                        });
+
+                        if (!resp.ok) {
+                            const data = await resp.json().catch(() => ({}));
+                            throw new Error(data.message || `Photo upload failed (${file.name})`);
+                        }
+
+                        const data = await resp.json();
+                        this.images.push({
+                            uuid:          data.uuid,
+                            original_name: file.name,
+                            localUrl:      URL.createObjectURL(file),
+                            fileExpired:   false,
+                        });
+                    }
+                } catch (err) {
+                    this.imageError = err.message;
+                } finally {
+                    this.imageUploading = false;
+                }
+            },
+
+            removeImage(index) {
+                const img = this.images[index];
+                if (img.localUrl?.startsWith('blob:')) URL.revokeObjectURL(img.localUrl);
+                this.images.splice(index, 1);
+            },
+
+            moveImageLeft(index) {
+                if (index === 0) return;
+                const moved = this.images.splice(index, 1)[0];
+                this.images.splice(index - 1, 0, moved);
+            },
+
+            moveImageRight(index) {
+                if (index === this.images.length - 1) return;
+                const moved = this.images.splice(index, 1)[0];
+                this.images.splice(index + 1, 0, moved);
+            },
+
+            // ----------------------------------------------------------------
             // Reorder clips
             // ----------------------------------------------------------------
             moveUp(index) {
@@ -813,6 +968,10 @@
                         })),
                         music_uuid:  this.musicUuid ?? null,
                         logo_uuid:   this.logoUuid ?? null,
+                        images:              this.images.map(i => i.uuid),
+                        images_in_video:     this.imagesInVideo,
+                        image_duration:      Math.max(1, this.imageDuration || 5),
+                        images_downloadable: this.imagesDownloadable,
                         guest_name:  this.guestName.trim() || null,
                         guest_email: this.guestEmail.trim() || null,
                     };
