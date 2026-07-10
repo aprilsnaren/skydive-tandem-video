@@ -69,7 +69,10 @@ class ProcessExportJob implements ShouldQueue
                 $this->copyImagesForDownload($export, $imagePaths);
             }
 
-            $videoImages = $this->imagesInVideo ? $imagePaths : [];
+            // Cap how many photos are actually burned into the video — extras
+            // are still copied for download above, just not encoded.
+            $maxInVideo  = (int) config('videoedit.max_images_in_video', 30);
+            $videoImages = $this->imagesInVideo ? array_slice($imagePaths, 0, $maxInVideo) : [];
             $imageCount  = count($videoImages);
 
             if ($this->logoUuid || $imageCount > 0) {

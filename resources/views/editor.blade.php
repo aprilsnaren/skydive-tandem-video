@@ -384,6 +384,8 @@
                     seconds
                 </div>
 
+                <p x-show="imagesInVideo && images.length > maxImagesInVideo" class="text-yellow-500/80 text-xs pl-7" x-text="`Only the first ${maxImagesInVideo} photos will appear in the video — the rest will still be downloadable if enabled below.`"></p>
+
                 <label class="flex items-center gap-2.5 text-sm text-gray-300 cursor-pointer">
                     <input type="checkbox" x-model="imagesDownloadable" class="w-4 h-4 accent-[color:var(--brand)]">
                     Let the guest download the photos separately on the share page
@@ -617,6 +619,7 @@
             imagesDownloadable: initial?.imagesDownloadable ?? false,
             imageUploading:     false,
             imageError:         null,
+            maxImagesInVideo:   {{ (int) config('videoedit.max_images_in_video', 30) }},
 
             exporting:      false,
             exportUuid:     initial?.exportUuid ?? null,
@@ -648,7 +651,8 @@
             // ----------------------------------------------------------------
             get totalDuration() {
                 const clipsTotal  = this.clips.reduce((sum, c) => sum + Math.max(0, c.trim_end - c.trim_start), 0);
-                const imagesTotal = this.imagesInVideo ? this.images.length * Math.max(1, this.imageDuration || 5) : 0;
+                const imagesInVideoCount = Math.min(this.images.length, this.maxImagesInVideo);
+                const imagesTotal = this.imagesInVideo ? imagesInVideoCount * Math.max(1, this.imageDuration || 5) : 0;
                 return clipsTotal + imagesTotal;
             },
 

@@ -334,7 +334,10 @@ class EditorController extends Controller
      *   clips[]              — ordered array of { uuid, trim_start, trim_end }
      *   music_uuid           — optional upload UUID of the music file
      *   logo_uuid            — optional upload UUID of the logo image
-     *   images[]             — optional ordered array of upload UUIDs (end photos)
+     *   images[]             — optional ordered array of upload UUIDs (end photos).
+     *                          Only the first `videoedit.max_images_in_video` are
+     *                          burned into the video; the rest are still uploaded
+     *                          and downloadable if images_downloadable is set.
      *   images_in_video      — append the photos to the end of the video (before the logo)
      *   image_duration       — seconds each photo is shown in the video
      *   images_downloadable  — offer the photos as separate downloads on the share page
@@ -353,7 +356,7 @@ class EditorController extends Controller
             'clips.*.audio_end'    => ['nullable', 'numeric', 'min:0'],
             'music_uuid'           => ['nullable', 'string', 'exists:uploads,uuid'],
             'logo_uuid'            => ['nullable', 'string', 'exists:uploads,uuid'],
-            'images'               => ['nullable', 'array', 'max:30'],
+            'images'               => ['nullable', 'array', 'max:' . config('videoedit.max_images_upload', 200)],
             'images.*'             => ['required', 'string', 'exists:uploads,uuid'],
             'images_in_video'      => ['nullable', 'boolean'],
             'image_duration'       => ['nullable', 'numeric', 'min:1', 'max:60'],
