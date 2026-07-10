@@ -12,16 +12,64 @@ class ShareController extends Controller
         $export = Export::where('uuid', $uuid)->firstOrFail();
 
         $videoUrl = null;
+        $images   = [];
 
         if ($export->isDone() && $export->path) {
             // Serve via a dedicated route rather than exposing storage path directly
             $videoUrl = route('share.video', $export->uuid);
+            $images   = $export->downloadableImages();
         }
 
         return view('share', [
             'export'   => $export,
             'videoUrl' => $videoUrl,
+            'images'   => $images,
         ]);
+    }
+
+    /**
+     * Display an end photo inline (used by <img> tags on the share page).
+     */
+    public function image(string $uuid, int $index)
+    {
+        [, $image] = $this->findImage($uuid, $index);
+
+        return response()->file(storage_path('app/' . $image['path']));
+    }
+
+    /**
+     * Force-download an end photo with a human-readable filename.
+     */
+    public function imageDownload(string $uuid, int $index)
+    {
+        [$export, $image] = $this->findImage($uuid, $index);
+
+        $base = $export->guest_name
+            ? \Illuminate\Support\Str::slug($export->guest_name)
+            : 'tandem';
+        $ext = strtolower(pathinfo($image['path'], PATHINFO_EXTENSION)) ?: 'jpg';
+
+        return response()->download(
+            storage_path('app/' . $image['path']),
+            $base . '-photo-' . ($index + 1) . '.' . $ext,
+        );
+    }
+
+    /**
+     * Look up a downloadable end photo by export UUID and image index.
+     * 404s unless the export is done, downloads are enabled, and the file exists.
+     */
+    private function findImage(string $uuid, int $index): array
+    {
+        $export = Export::where('uuid', $uuid)
+            ->where('status', 'done')
+            ->firstOrFail();
+
+        $image = collect($export->downloadableImages())->firstWhere('index', $index);
+
+        abort_unless($image, 404);
+
+        return [$export, $image];
     }
 
     /**

@@ -22,6 +22,7 @@ Route::middleware('editor.auth')->group(function () {
 
     Route::post('/upload/chunk', [EditorController::class, 'chunk'])->name('upload.chunk');
     Route::post('/upload/logo', [EditorController::class, 'logo'])->name('upload.logo');
+    Route::post('/upload/image', [EditorController::class, 'image'])->name('upload.image');
     Route::post('/upload', [EditorController::class, 'upload'])->name('upload');
     Route::post('/export', [EditorController::class, 'export'])->name('export');
     Route::get('/export/{uuid}/status', [EditorController::class, 'status'])->name('export.status');
@@ -33,4 +34,6 @@ Route::middleware('editor.auth')->group(function () {
 Route::get('/share/{uuid}', [ShareController::class, 'show'])->name('share');
 Route::get('/share/{uuid}/video', [ShareController::class, 'video'])->name('share.video');
 Route::get('/share/{uuid}/download', [ShareController::class, 'download'])->name('share.download');
+Route::get('/share/{uuid}/image/{index}', [ShareController::class, 'image'])->name('share.image')->whereNumber('index');
+Route::get('/share/{uuid}/image/{index}/download', [ShareController::class, 'imageDownload'])->name('share.image.download')->whereNumber('index');
 

@@ -70,6 +70,10 @@ class EditorController extends Controller
         $music     = null;
         $logoUuid  = null;
         $logo      = null;
+        $images    = [];
+        $imagesInVideo      = true;
+        $imageDuration      = (float) config('videoedit.image_duration', 5);
+        $imagesDownloadable = false;
 
         if ($export->clips_config) {
             $config    = $export->clips_config;
@@ -83,6 +87,22 @@ class EditorController extends Controller
                 $logo = [
                     'name'     => $config['logo_name'] ?? 'logo',
                     'localUrl' => $logoFileExists ? route('uploads.stream', $logoUuid) : null,
+                ];
+            }
+
+            $imagesInVideo      = (bool) ($config['images_in_video'] ?? true);
+            $imageDuration      = (float) ($config['image_duration'] ?? config('videoedit.image_duration', 5));
+            $imagesDownloadable = (bool) ($config['images_downloadable'] ?? false);
+
+            foreach ($config['images'] ?? [] as $image) {
+                $imageUpload = Upload::where('uuid', $image['uuid'])->first();
+                $imageExists = $imageUpload && file_exists(storage_path("app/{$imageUpload->path}"));
+
+                $images[] = [
+                    'uuid'          => $image['uuid'],
+                    'original_name' => $image['original_name'] ?? 'photo',
+                    'localUrl'      => $imageExists ? route('uploads.stream', $image['uuid']) : null,
+                    'fileExpired'   => !$imageExists,
                 ];
             }
 
@@ -115,6 +135,10 @@ class EditorController extends Controller
             'music'       => $music,
             'logoUuid'    => $logoUuid,
             'logo'        => $logo,
+            'images'      => $images,
+            'imagesInVideo'      => $imagesInVideo,
+            'imageDuration'      => $imageDuration,
+            'imagesDownloadable' => $imagesDownloadable,
         ];
 
         if ($export->isDone() && $export->path) {
@@ -255,6 +279,31 @@ class EditorController extends Controller
     }
 
     /**
+     * End photo upload — single image file, no chunking needed.
+     */
+    public function image(Request $request)
+    {
+        $request->validate([
+            'image' => ['required', 'file', 'mimetypes:image/png,image/jpeg,image/webp', 'max:20480'],
+        ]);
+
+        $file = $request->file('image');
+        $ext  = strtolower($file->getClientOriginalExtension()) ?: 'jpg';
+        $filename    = \Illuminate\Support\Str::random(40) . '.' . $ext;
+        $storagePath = 'videos/' . $filename;
+
+        @mkdir(storage_path('app/videos'), 0755, true);
+        $file->move(storage_path('app/videos'), $filename);
+
+        $upload = Upload::create([
+            'original_name' => $file->getClientOriginalName(),
+            'path'          => $storagePath,
+        ]);
+
+        return response()->json(['uuid' => $upload->uuid]);
+    }
+
+    /**
      * Legacy endpoint — used by the music upload (small files, no chunking needed).
      */
     public function upload(Request $request)
@@ -282,11 +331,15 @@ class EditorController extends Controller
     /**
      * Start an export job.
      * POST body (JSON or form):
-     *   clips[]          — ordered array of { uuid, trim_start, trim_end }
-     *   music_uuid       — optional upload UUID of the music file
-     *   logo_uuid        — optional upload UUID of the logo image
-     *   guest_name       — optional guest name
-     *   guest_email      — optional guest email
+     *   clips[]              — ordered array of { uuid, trim_start, trim_end }
+     *   music_uuid           — optional upload UUID of the music file
+     *   logo_uuid            — optional upload UUID of the logo image
+     *   images[]             — optional ordered array of upload UUIDs (end photos)
+     *   images_in_video      — append the photos to the end of the video (before the logo)
+     *   image_duration       — seconds each photo is shown in the video
+     *   images_downloadable  — offer the photos as separate downloads on the share page
+     *   guest_name           — optional guest name
+     *   guest_email          — optional guest email
      */
     public function export(Request $request)
     {
@@ -300,6 +353,11 @@ class EditorController extends Controller
             'clips.*.audio_end'    => ['nullable', 'numeric', 'min:0'],
             'music_uuid'           => ['nullable', 'string', 'exists:uploads,uuid'],
             'logo_uuid'            => ['nullable', 'string', 'exists:uploads,uuid'],
+            'images'               => ['nullable', 'array', 'max:30'],
+            'images.*'             => ['required', 'string', 'exists:uploads,uuid'],
+            'images_in_video'      => ['nullable', 'boolean'],
+            'image_duration'       => ['nullable', 'numeric', 'min:1', 'max:60'],
+            'images_downloadable'  => ['nullable', 'boolean'],
             'guest_name'           => ['nullable', 'string', 'max:100'],
             'guest_email'          => ['nullable', 'email', 'max:254'],
         ]);
@@ -307,6 +365,11 @@ class EditorController extends Controller
         $clips     = $request->input('clips');
         $musicUuid = $request->input('music_uuid');
         $logoUuid  = $request->input('logo_uuid');
+
+        $images             = $request->input('images') ?: [];
+        $imagesInVideo      = $request->boolean('images_in_video', true);
+        $imageDuration      = (float) ($request->input('image_duration') ?: config('videoedit.image_duration', 5));
+        $imagesDownloadable = $request->boolean('images_downloadable');
 
         // Build the clips_config snapshot for later re-editing.
         $clipsConfig = [
@@ -325,6 +388,15 @@ class EditorController extends Controller
             'music_name' => $musicUuid ? Upload::where('uuid', $musicUuid)->value('original_name') : null,
             'logo_uuid'  => $logoUuid,
             'logo_name'  => $logoUuid  ? Upload::where('uuid', $logoUuid)->value('original_name')  : null,
+            'images'     => array_map(function (string $uuid) {
+                return [
+                    'uuid'          => $uuid,
+                    'original_name' => Upload::where('uuid', $uuid)->value('original_name') ?? '',
+                ];
+            }, $images),
+            'images_in_video'     => $imagesInVideo,
+            'image_duration'      => $imageDuration,
+            'images_downloadable' => $imagesDownloadable,
         ];
 
         $export = Export::create([
@@ -339,6 +411,10 @@ class EditorController extends Controller
             $clips,
             $musicUuid,
             $logoUuid,
+            $images,
+            $imagesInVideo,
+            $imageDuration,
+            $imagesDownloadable,
         );
 
         return response()->json([
@@ -359,6 +435,8 @@ class EditorController extends Controller
                 @unlink($fullPath);
             }
         }
+
+        $export->deleteImageCopies();
 
         $export->delete();
 

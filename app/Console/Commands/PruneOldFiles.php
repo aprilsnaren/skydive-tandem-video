@@ -40,6 +40,7 @@ class PruneOldFiles extends Command
             if ($export->path) {
                 $this->deleteFile($export->path);
             }
+            $export->deleteImageCopies();
             $export->delete();
         }
 
@@ -53,6 +54,7 @@ class PruneOldFiles extends Command
             if ($export->path) {
                 $this->deleteFile($export->path);
             }
+            $export->deleteImageCopies();
             $export->delete();
         }
 
@@ -71,6 +73,7 @@ class PruneOldFiles extends Command
                 $this->deleteFile($export->path);
                 $export->update(['path' => null]);
             }
+            $export->deleteImageCopies();
         }
 
         $this->info("Cleaned up {$failed->count()} failed export file(s).");
