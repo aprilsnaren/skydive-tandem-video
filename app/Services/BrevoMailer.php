@@ -105,6 +105,44 @@ class BrevoMailer
         return $this->send($notifyEmail, '', $subject, $html);
     }
 
+    /**
+     * Notify the operator that an uploader submitted new raw footage.
+     */
+    public function sendIntakeNotification(
+        string $notifyEmail,
+        string $uploaderName,
+        string $receiverName,
+        int $videoCount,
+        int $imageCount,
+        string $editUrl,
+        ?string $message = null,
+    ): bool {
+        $subject = "Nye filer uploadet: {$receiverName}";
+
+        $uploaderName = e($uploaderName);
+        $receiverName = e($receiverName);
+
+        $messageRow = $message
+            ? "<tr><td style='padding:4px 12px 4px 0;color:#888;vertical-align:top'>Besked:</td><td>" . nl2br(e($message)) . "</td></tr>"
+            : '';
+
+        $html = $this->wrap('', "
+            <p>Der er uploadet nye filer til et videoprojekt.</p>
+            <table style='margin:16px 0;font-size:15px'>
+                <tr><td style='padding:4px 12px 4px 0;color:#888'>Uploadet af:</td><td><strong>{$uploaderName}</strong></td></tr>
+                <tr><td style='padding:4px 12px 4px 0;color:#888'>G&aelig;st:</td><td><strong>{$receiverName}</strong></td></tr>
+                <tr><td style='padding:4px 12px 4px 0;color:#888'>Filer:</td><td>{$videoCount} video(er), {$imageCount} billede(r)</td></tr>
+                {$messageRow}
+                <tr><td style='padding:4px 12px 4px 0;color:#888'>Tidspunkt:</td><td>" . now()->format('d/m/Y H:i') . "</td></tr>
+            </table>
+            <p style='text-align:center;margin:32px 0'>
+                <a href='{$editUrl}' style='" . $this->btnStyle() . "'>&Aring;bn projektet i editoren</a>
+            </p>
+        ");
+
+        return $this->send($notifyEmail, '', $subject, $html);
+    }
+
     // -------------------------------------------------------------------------
 
     protected function send(string $toEmail, string $toName, string $subject, string $htmlContent): bool

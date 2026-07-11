@@ -81,6 +81,24 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Uploader password — required to access the /portal upload page where
+    | external uploaders submit raw footage. Separate from the editor password
+    | so uploaders can't reach the dashboard. Null disables the portal.
+    |--------------------------------------------------------------------------
+    */
+    'uploader_password' => env('UPLOADER_PASSWORD', null),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Days that raw files submitted via the uploader portal are kept before
+    | pruning (regular uploads are pruned after 12 hours). Drafts themselves
+    | are removed by the existing delete_after_days rule.
+    |--------------------------------------------------------------------------
+    */
+    'intake_keep_days' => (int) env('VE_INTAKE_KEEP_DAYS', 7),
+
+    /*
+    |--------------------------------------------------------------------------
     | Brevo transactional email API
     |--------------------------------------------------------------------------
     */

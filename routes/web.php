@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\EditorController;
+use App\Http\Controllers\PortalController;
 use App\Http\Controllers\ShareController;
 use Illuminate\Support\Facades\Route;
 
@@ -28,6 +29,15 @@ Route::middleware('editor.auth')->group(function () {
     Route::get('/export/{uuid}/status', [EditorController::class, 'status'])->name('export.status');
     Route::post('/export/{uuid}/send-email', [EditorController::class, 'sendEmail'])->name('export.sendEmail');
     Route::delete('/export/{uuid}', [EditorController::class, 'destroy'])->name('export.destroy');
+});
+
+// Uploader portal (shared uploader password — separate from the editor login)
+Route::get('/portal/login', [PortalController::class, 'showLogin'])->name('portal.login');
+Route::post('/portal/login', [PortalController::class, 'login'])->name('portal.login.submit');
+Route::middleware('uploader.auth')->group(function () {
+    Route::get('/portal', [PortalController::class, 'show'])->name('portal');
+    Route::post('/portal/chunk', [PortalController::class, 'chunk'])->name('portal.chunk');
+    Route::post('/portal/submit', [PortalController::class, 'submit'])->name('portal.submit');
 });
 
 // Share page (public — no auth required)

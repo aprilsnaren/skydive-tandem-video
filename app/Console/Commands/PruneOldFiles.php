@@ -18,16 +18,28 @@ class PruneOldFiles extends Command
         // 1. Prune raw uploads older than 12 hours
         //    Uploads are only needed while the FFmpeg job runs (minutes).
         //    12 hours is generous enough to cover retries and slow queues.
+        //    Exception: files submitted via the uploader portal belong to a
+        //    draft project awaiting editing — keep those for intake_keep_days.
         // ------------------------------------------------------------------
+        $intakeDays = (int) config('videoedit.intake_keep_days', 7);
+        $protected  = Export::where('status', 'draft')
+            ->where('created_at', '>=', Carbon::now()->subDays($intakeDays))
+            ->get()
+            ->flatMap(fn (Export $draft) => $draft->referencedUploadUuids())
+            ->unique()
+            ->all();
+
         $uploadThreshold = Carbon::now()->subHours(12);
-        $uploads = Upload::where('created_at', '<', $uploadThreshold)->get();
+        $uploads = Upload::where('created_at', '<', $uploadThreshold)
+            ->whereNotIn('uuid', $protected)
+            ->get();
 
         foreach ($uploads as $upload) {
             $this->deleteFile($upload->path);
             $upload->delete();
         }
 
-        $this->info("Pruned {$uploads->count()} upload(s).");
+        $this->info("Pruned {$uploads->count()} upload(s), " . count($protected) . ' protected by drafts.');
 
         // ------------------------------------------------------------------
         // 2. Prune exports whose expires_at has passed

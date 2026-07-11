@@ -9,6 +9,7 @@ class Export extends Model
 {
     protected $fillable = [
         'uuid', 'guest_name', 'guest_email', 'path', 'status',
+        'uploader_name', 'uploader_message',
         'status_message', 'error_message', 'clips_config',
         'expires_at',
         'email_ready_at', 'email_reminder_at', 'email_tomorrow_at', 'email_today_at',
@@ -42,6 +43,35 @@ class Export extends Model
     public function isFailed(): bool
     {
         return $this->status === 'failed';
+    }
+
+    public function isDraft(): bool
+    {
+        return $this->status === 'draft';
+    }
+
+    /**
+     * All upload UUIDs referenced by this export's clips_config.
+     */
+    public function referencedUploadUuids(): array
+    {
+        $config = $this->clips_config ?? [];
+        $uuids  = [];
+
+        foreach ($config['clips'] ?? [] as $clip) {
+            $uuids[] = $clip['uuid'];
+        }
+        foreach ($config['images'] ?? [] as $image) {
+            $uuids[] = $image['uuid'];
+        }
+        if (!empty($config['music_uuid'])) {
+            $uuids[] = $config['music_uuid'];
+        }
+        if (!empty($config['logo_uuid'])) {
+            $uuids[] = $config['logo_uuid'];
+        }
+
+        return $uuids;
     }
 
     /**
