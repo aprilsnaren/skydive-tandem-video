@@ -485,6 +485,22 @@
                 >
                 <p class="text-gray-600 text-xs mt-1">The guest will receive an email when the video is ready, plus reminders before it expires after 7 days.</p>
             </div>
+
+            {{-- FFmpeg encode preset --}}
+            <div x-show="ffmpegPresets.length">
+                <label class="text-sm text-gray-400 block mb-1">Encode preset <span class="text-gray-600">(speed vs. file size)</span></label>
+                <select
+                    x-model="ffmpegPreset"
+                    class="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-[color:var(--brand)] transition"
+                >
+                    <option value="">Server default</option>
+                    <template x-for="preset in ffmpegPresets" :key="preset">
+                        <option :value="preset" x-text="preset"></option>
+                    </template>
+                </select>
+                <p class="text-gray-600 text-xs mt-1">Slower presets (veryslow, slower, slow) encode a smaller file at the same quality but take longer. Faster presets (faster, veryfast, ultrafast) finish sooner but produce a larger file.</p>
+            </div>
+
             <div class="grid grid-cols-3 gap-3 text-center">
                 <div class="bg-gray-800 rounded-xl py-3 px-2">
                     <p class="text-xs text-gray-500 mb-1">Clips</p>
@@ -635,6 +651,9 @@
 
             guestName:      initial?.guestName ?? '',
             guestEmail:     initial?.guestEmail ?? '',
+
+            ffmpegPreset:   initial?.ffmpegPreset ?? '',
+            ffmpegPresets:  initial?.ffmpegPresets ?? [],
 
             uploaderName:    initial?.uploaderName ?? null,
             uploaderMessage: initial?.uploaderMessage ?? null,
@@ -1037,6 +1056,7 @@
                         guest_name:  this.guestName.trim() || null,
                         guest_email: this.guestEmail.trim() || null,
                         draft_uuid:  this.draftUuid,
+                        ffmpeg_preset: this.ffmpegPreset || null,
                     };
 
                     const resp = await fetch('/export', {

@@ -114,6 +114,10 @@ All `VE_*` variables are read from `.env` via `config/videoedit.php`.
 | `VE_WATERMARK` | `storage/watermark.png` | Path to watermark PNG |
 | `VE_SPLASH_VIDEO` | `storage/splash.mp4` | Path to splash screen video |
 | `VE_DELETE_AFTER` | `3` | Days before uploads and exports are auto-deleted |
+| `VE_FFMPEG_PRESET` | `fast` | Default FFmpeg `-preset` used when an export doesn't pick its own — editors can override this per export from the "Encode preset" dropdown in the editor UI |
+| `VE_FFMPEG_THREADS` | `2` | FFmpeg encode threads |
+| `VE_FFMPEG_CRF` | `23` | FFmpeg constant rate factor (quality) |
+| `VE_EXPORT_TIMEOUT` | `3600` | Job timeout in seconds — see note below on keeping the queue worker's own timeout above this |
 
 Paths can be absolute or relative to the project root.
 
@@ -139,6 +143,29 @@ In **production**, manage the queue worker with Supervisor and add the scheduler
 ```
 * * * * * cd /path/to/app && php artisan schedule:run >> /dev/null 2>&1
 ```
+
+### Avoiding `ProcessTimedOutException`
+
+Whatever manages the queue worker (Supervisor, or a hosting panel's queue-worker
+UI like Ploi's) has its **own** process timeout, separate from the job's own
+`$timeout` (set from `VE_EXPORT_TIMEOUT`, default 3600s/1h). If the worker's
+timeout is lower — Laravel's `queue:work` defaults to just **60 seconds** when
+no `--timeout` is passed — it will kill the PHP worker process mid-encode and
+throw `Symfony\Component\Process\Exception\ProcessTimedOutException`, even
+though the job itself would have kept running for much longer.
+
+Make sure the worker is started with a timeout at or above `VE_EXPORT_TIMEOUT`:
+
+```bash
+php artisan queue:work --timeout=3600
+```
+
+If you're using a hosting panel to manage the worker, set its "Timeout" (and
+ideally "Max Tries") fields to match — don't rely only on the `.env` value,
+since the CLI flag the panel passes takes precedence. When a job does
+ultimately time out or exhaust its retries, the export is now marked
+`failed` (with a retry button in the dashboard/editor) instead of being
+stuck at "processing" forever.
 
 ---
 

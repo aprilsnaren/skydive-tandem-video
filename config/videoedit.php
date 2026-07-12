@@ -28,8 +28,18 @@ return [
     |--------------------------------------------------------------------------
     */
     'ffmpeg_threads' => (int) env('VE_FFMPEG_THREADS', 2),
-    'ffmpeg_preset'  => env('VE_FFMPEG_PRESET', 'fast'), // ultrafast|superfast|veryfast|faster|fast|medium…
+    'ffmpeg_preset'  => env('VE_FFMPEG_PRESET', 'fast'), // default used when an export doesn't pick its own preset
     'ffmpeg_crf'     => (int) env('VE_FFMPEG_CRF', 23),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Presets selectable per export from the editor UI (slowest/smallest first
+    | to fastest/largest last). VE_FFMPEG_PRESET above only sets the default
+    | selection — editors can override it per export to trade encode speed
+    | for file size while experimenting.
+    |--------------------------------------------------------------------------
+    */
+    'ffmpeg_presets' => ['veryslow', 'slower', 'slow', 'medium', 'fast', 'faster', 'veryfast', 'superfast', 'ultrafast'],
 
     /*
     |--------------------------------------------------------------------------
