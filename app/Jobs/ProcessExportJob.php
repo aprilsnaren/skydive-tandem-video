@@ -27,8 +27,6 @@ class ProcessExportJob implements ShouldQueue
         private readonly ?string $musicUuid,
         private readonly ?string $logoUuid = null,
         private readonly array $images = [],
-        private readonly bool $imagesInVideo = true,
-        private readonly float $imageDuration = 5,
         private readonly bool $imagesDownloadable = false,
     ) {}
 
@@ -55,47 +53,35 @@ class ProcessExportJob implements ShouldQueue
                 $musicPath   = $this->storagePath($musicUpload->path);
             }
 
-            // Resolve image uploads (end photos)
-            $imagePaths = [];
-            foreach ($this->images as $imageUuid) {
-                $imageUpload  = Upload::where('uuid', $imageUuid)->firstOrFail();
-                $imagePaths[] = $this->storagePath($imageUpload->path);
-            }
-
-            // Copy the images into exports/ so they survive upload pruning and
-            // can be downloaded from the share page for as long as the video lives.
-            if ($this->imagesDownloadable && $imagePaths) {
+            // Resolve image uploads (end photos) — download-only, never embedded
+            // into the video. Copy them into exports/ so they survive upload
+            // pruning and stay downloadable for as long as the video does.
+            if ($this->imagesDownloadable && $this->images) {
+                $imagePaths = [];
+                foreach ($this->images as $imageUuid) {
+                    $imageUpload  = Upload::where('uuid', $imageUuid)->firstOrFail();
+                    $imagePaths[] = $this->storagePath($imageUpload->path);
+                }
                 $export->update(['status_message' => 'Preparing photos for download…']);
                 $this->copyImagesForDownload($export, $imagePaths);
             }
 
-            // Cap how many photos are actually burned into the video — extras
-            // are still copied for download above, just not encoded.
-            $maxInVideo  = (int) config('videoedit.max_images_in_video', 30);
-            $videoImages = $this->imagesInVideo ? array_slice($imagePaths, 0, $maxInVideo) : [];
-            $imageCount  = count($videoImages);
-
-            if ($this->logoUuid || $imageCount > 0) {
+            if ($this->logoUuid) {
                 // ----------------------------------------------------------------
-                // Single FFmpeg pass: clips + end photos + logo end-card + optional
-                // music → output. This avoids ever writing concat.mp4 to disk,
-                // eliminating the peak disk usage of 2× the output size that
-                // caused ENOSPC in production.
+                // Single FFmpeg pass: clips + logo end-card + optional music → output
+                // This avoids ever writing concat.mp4 to disk, eliminating the peak
+                // disk usage of 2× the output size that caused ENOSPC in production.
                 // ----------------------------------------------------------------
-                $logoPath     = null;
+                $logoUpload   = Upload::where('uuid', $this->logoUuid)->firstOrFail();
+                $logoPath     = $this->storagePath($logoUpload->path);
                 $logoDuration = (int) config('videoedit.logo_duration', 10);
-                if ($this->logoUuid) {
-                    $logoUpload = Upload::where('uuid', $this->logoUuid)->firstOrFail();
-                    $logoPath   = $this->storagePath($logoUpload->path);
-                }
 
-                $statusMsg = "Trimming and joining {$clipCount} clip" . ($clipCount === 1 ? '' : 's');
-                if ($imageCount) $statusMsg .= " and appending {$imageCount} photo" . ($imageCount === 1 ? '' : 's');
-                if ($logoPath)   $statusMsg .= ' and appending logo end card';
-                if ($musicPath)  $statusMsg .= ' and mixing music';
+                $statusMsg = "Trimming and joining {$clipCount} clip" . ($clipCount === 1 ? '' : 's')
+                           . ' and appending logo end card';
+                if ($musicPath) $statusMsg .= ' and mixing music';
                 $export->update(['status_message' => $statusMsg . '…']);
 
-                $this->buildVideo($this->clips, $outputPath, $musicPath, $logoPath, $logoDuration, $videoImages, $this->imageDuration);
+                $this->buildVideo($this->clips, $outputPath, $musicPath, $logoPath, $logoDuration);
             } else {
                 // ----------------------------------------------------------------
                 // Two-step: concat clips (+ optional music) → rename to output.
@@ -268,8 +254,7 @@ class ProcessExportJob implements ShouldQueue
 
     /**
      * Build the complete output video in a single FFmpeg pass.
-     * Handles N-clip concatenation, optional end photos, optional logo end-card,
-     * and optional music mix.
+     * Handles N-clip concatenation, optional logo end-card, and optional music mix.
      * Writes directly to $outputPath with no intermediate files on disk.
      */
     private function buildVideo(
@@ -278,8 +263,6 @@ class ProcessExportJob implements ShouldQueue
         ?string $musicPath,
         ?string $logoPath,
         int $logoDuration,
-        array $imagePaths = [],
-        float $imageDuration = 5,
     ): void {
         $w = (int) config('videoedit.output_width',  1920);
         $h = (int) config('videoedit.output_height', 1080);
@@ -316,29 +299,8 @@ class ProcessExportJob implements ShouldQueue
             $idx++;
         }
 
-        // ── End photos: each becomes a still segment before the logo ─────────
-        $segments = $n;
-        foreach ($imagePaths as $imagePath) {
-            $imgIdx = $idx++;
-            $inputArgs .= sprintf(
-                ' -loop 1 -framerate 25 -t %s -i %s',
-                escapeshellarg((string) $imageDuration),
-                escapeshellarg($imagePath),
-            );
-            // Silent stereo audio to pair with the silent still image
-            $silentIdx = $idx++;
-            $inputArgs .= sprintf(
-                ' -f lavfi -t %s -i anullsrc=channel_layout=stereo:sample_rate=48000',
-                escapeshellarg((string) $imageDuration),
-            );
-
-            $filterParts[] = "[{$imgIdx}:v]{$normalize}[iv{$imgIdx}]";
-            $concatInputs .= "[iv{$imgIdx}][{$silentIdx}:a]";
-            $segments++;
-        }
-
-        // Concatenate clips + photos → [joinv][joina]
-        $filterParts[] = "{$concatInputs}concat=n={$segments}:v=1:a=1[joinv][joina]";
+        // Concatenate clips → [joinv][joina]
+        $filterParts[] = "{$concatInputs}concat=n={$n}:v=1:a=1[joinv][joina]";
         $outV = 'joinv';
         $outA = 'joina';
 

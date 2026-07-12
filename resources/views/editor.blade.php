@@ -344,7 +344,7 @@
             <div class="flex items-center justify-between">
                 <div>
                     <h2 class="text-lg font-semibold">3. Photos <span class="text-gray-500 text-sm font-normal">(optional)</span></h2>
-                    <p class="text-gray-500 text-sm mt-0.5">Shown at the end of the video, before the logo end card, and/or offered as separate downloads.</p>
+                    <p class="text-gray-500 text-sm mt-0.5">Not included in the video — offered to the guest as a separate download on the share page.</p>
                 </div>
 
                 {{-- Add photos button --}}
@@ -390,23 +390,6 @@
 
             {{-- Photo settings --}}
             <div x-show="images.length" class="space-y-3 pt-1">
-                <label class="flex items-center gap-2.5 text-sm text-gray-300 cursor-pointer">
-                    <input type="checkbox" x-model="imagesInVideo" class="w-4 h-4 accent-[color:var(--brand)]">
-                    Include photos at the end of the video
-                </label>
-
-                <div x-show="imagesInVideo" class="flex items-center gap-2 text-sm text-gray-400 pl-7">
-                    Show each photo for
-                    <input
-                        type="number" min="1" max="60" step="1"
-                        x-model.number="imageDuration"
-                        class="w-16 bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-sm text-white text-center focus:outline-none focus:border-[color:var(--brand)] transition"
-                    >
-                    seconds
-                </div>
-
-                <p x-show="imagesInVideo && images.length > maxImagesInVideo" class="text-yellow-500/80 text-xs pl-7" x-text="`Only the first ${maxImagesInVideo} photos will appear in the video — the rest will still be downloadable if enabled below.`"></p>
-
                 <label class="flex items-center gap-2.5 text-sm text-gray-300 cursor-pointer">
                     <input type="checkbox" x-model="imagesDownloadable" class="w-4 h-4 accent-[color:var(--brand)]">
                     Let the guest download the photos separately on the share page
@@ -496,7 +479,6 @@
 
             <p class="text-gray-500 text-xs space-x-2">
                 <span x-show="music" class="text-green-400">Background music included.</span>
-                <span x-show="images.length && imagesInVideo" class="text-green-400" x-text="`${images.length} photo${images.length === 1 ? '' : 's'} appended to the video.`"></span>
                 <span x-show="images.length && imagesDownloadable" class="text-green-400">Photos downloadable on the share page.</span>
             </p>
 
@@ -641,12 +623,9 @@
                 localUrl:      i.localUrl ?? null,
                 fileExpired:   i.fileExpired ?? false,
             })),
-            imagesInVideo:      initial?.imagesInVideo ?? true,
-            imageDuration:      initial?.imageDuration ?? {{ (int) config('videoedit.image_duration', 5) }},
             imagesDownloadable: initial?.imagesDownloadable ?? false,
             imageUploading:     false,
             imageError:         null,
-            maxImagesInVideo:   {{ (int) config('videoedit.max_images_in_video', 30) }},
 
             exporting:      false,
             exportUuid:     initial?.exportUuid ?? null,
@@ -677,10 +656,7 @@
             // Computed
             // ----------------------------------------------------------------
             get totalDuration() {
-                const clipsTotal  = this.clips.reduce((sum, c) => sum + Math.max(0, c.trim_end - c.trim_start), 0);
-                const imagesInVideoCount = Math.min(this.images.length, this.maxImagesInVideo);
-                const imagesTotal = this.imagesInVideo ? imagesInVideoCount * Math.max(1, this.imageDuration || 5) : 0;
-                return clipsTotal + imagesTotal;
+                return this.clips.reduce((sum, c) => sum + Math.max(0, c.trim_end - c.trim_start), 0);
             },
 
             get estimatedSize() {
@@ -1023,8 +999,6 @@
                         music_uuid:  this.musicUuid ?? null,
                         logo_uuid:   this.logoUuid ?? null,
                         images:              this.images.map(i => i.uuid),
-                        images_in_video:     this.imagesInVideo,
-                        image_duration:      Math.max(1, this.imageDuration || 5),
                         images_downloadable: this.imagesDownloadable,
                         guest_name:  this.guestName.trim() || null,
                         guest_email: this.guestEmail.trim() || null,

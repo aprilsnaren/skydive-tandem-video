@@ -25,25 +25,9 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Default seconds each end photo is shown in the video (editor can override)
-    |--------------------------------------------------------------------------
-    */
-    'image_duration' => (int) env('VE_IMAGE_DURATION', 5),
-
-    /*
-    |--------------------------------------------------------------------------
-    | Max end photos actually burned into the video. Beyond this, extra
-    | photos are still uploaded and (if enabled) downloadable — they're just
-    | not included in the video itself, to keep the FFmpeg filter graph and
-    | encode time bounded.
-    |--------------------------------------------------------------------------
-    */
-    'max_images_in_video' => (int) env('VE_MAX_IMAGES_IN_VIDEO', 30),
-
-    /*
-    |--------------------------------------------------------------------------
-    | Max end photos that can be attached to a single export in total
-    | (uploaded + downloadable), regardless of whether they're in the video.
+    | Max end photos that can be attached to a single export. Photos are
+    | never embedded in the video — they're only offered as a separate
+    | download on the share page.
     |--------------------------------------------------------------------------
     */
     'max_images_upload' => (int) env('VE_MAX_IMAGES_UPLOAD', 200),

@@ -74,8 +74,6 @@ class EditorController extends Controller
         $logoUuid  = null;
         $logo      = null;
         $images    = [];
-        $imagesInVideo      = true;
-        $imageDuration      = (float) config('videoedit.image_duration', 5);
         $imagesDownloadable = false;
 
         if ($export->clips_config) {
@@ -93,8 +91,6 @@ class EditorController extends Controller
                 ];
             }
 
-            $imagesInVideo      = (bool) ($config['images_in_video'] ?? true);
-            $imageDuration      = (float) ($config['image_duration'] ?? config('videoedit.image_duration', 5));
             $imagesDownloadable = (bool) ($config['images_downloadable'] ?? false);
 
             foreach ($config['images'] ?? [] as $image) {
@@ -140,8 +136,6 @@ class EditorController extends Controller
             'logoUuid'    => $logoUuid,
             'logo'        => $logo,
             'images'      => $images,
-            'imagesInVideo'      => $imagesInVideo,
-            'imageDuration'      => $imageDuration,
             'imagesDownloadable' => $imagesDownloadable,
             'uploaderName'       => $export->uploader_name,
             'uploaderMessage'    => $export->uploader_message,
@@ -276,11 +270,8 @@ class EditorController extends Controller
      *   music_uuid           — optional upload UUID of the music file
      *   logo_uuid            — optional upload UUID of the logo image
      *   images[]             — optional ordered array of upload UUIDs (end photos).
-     *                          Only the first `videoedit.max_images_in_video` are
-     *                          burned into the video; the rest are still uploaded
-     *                          and downloadable if images_downloadable is set.
-     *   images_in_video      — append the photos to the end of the video (before the logo)
-     *   image_duration       — seconds each photo is shown in the video
+     *                          Never embedded in the video — only offered as a
+     *                          separate download on the share page.
      *   images_downloadable  — offer the photos as separate downloads on the share page
      *   guest_name           — optional guest name
      *   guest_email          — optional guest email
@@ -299,8 +290,6 @@ class EditorController extends Controller
             'logo_uuid'            => ['nullable', 'string', 'exists:uploads,uuid'],
             'images'               => ['nullable', 'array', 'max:' . config('videoedit.max_images_upload', 200)],
             'images.*'             => ['required', 'string', 'exists:uploads,uuid'],
-            'images_in_video'      => ['nullable', 'boolean'],
-            'image_duration'       => ['nullable', 'numeric', 'min:1', 'max:60'],
             'images_downloadable'  => ['nullable', 'boolean'],
             'guest_name'           => ['nullable', 'string', 'max:100'],
             'guest_email'          => ['nullable', 'email', 'max:254'],
@@ -312,8 +301,6 @@ class EditorController extends Controller
         $logoUuid  = $request->input('logo_uuid');
 
         $images             = $request->input('images') ?: [];
-        $imagesInVideo      = $request->boolean('images_in_video', true);
-        $imageDuration      = (float) ($request->input('image_duration') ?: config('videoedit.image_duration', 5));
         $imagesDownloadable = $request->boolean('images_downloadable');
 
         // Build the clips_config snapshot for later re-editing.
@@ -339,8 +326,6 @@ class EditorController extends Controller
                     'original_name' => Upload::where('uuid', $uuid)->value('original_name') ?? '',
                 ];
             }, $images),
-            'images_in_video'     => $imagesInVideo,
-            'image_duration'      => $imageDuration,
             'images_downloadable' => $imagesDownloadable,
         ];
 
@@ -369,8 +354,6 @@ class EditorController extends Controller
             $musicUuid,
             $logoUuid,
             $images,
-            $imagesInVideo,
-            $imageDuration,
             $imagesDownloadable,
         );
 
