@@ -28,6 +28,7 @@ Route::middleware('editor.auth')->group(function () {
     Route::post('/export', [EditorController::class, 'export'])->name('export');
     Route::get('/export/{uuid}/status', [EditorController::class, 'status'])->name('export.status');
     Route::post('/export/{uuid}/send-email', [EditorController::class, 'sendEmail'])->name('export.sendEmail');
+    Route::post('/export/{uuid}/restart', [EditorController::class, 'restart'])->name('export.restart');
     Route::delete('/export/{uuid}', [EditorController::class, 'destroy'])->name('export.destroy');
 });
 

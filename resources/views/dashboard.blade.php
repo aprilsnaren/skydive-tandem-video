@@ -127,6 +127,22 @@
                                 Open
                             </a>
 
+                            @if (in_array($export->status, ['pending', 'processing', 'failed']))
+                                <form
+                                    method="POST"
+                                    action="{{ route('export.restart', $export->uuid) }}"
+                                    onsubmit="return confirm('Restart this render from scratch? This clears the cached render and starts over — clips, trims, music and images are kept.')"
+                                >
+                                    @csrf
+                                    <button
+                                        type="submit"
+                                        class="text-xs text-yellow-400 hover:text-yellow-300 transition bg-gray-800 hover:bg-gray-700 px-3 py-1.5 rounded-lg"
+                                    >
+                                        Restart
+                                    </button>
+                                </form>
+                            @endif
+
                             <form
                                 method="POST"
                                 action="{{ route('export.destroy', $export->uuid) }}"

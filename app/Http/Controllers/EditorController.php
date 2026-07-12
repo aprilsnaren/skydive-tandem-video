@@ -384,6 +384,82 @@ class EditorController extends Controller
     }
 
     /**
+     * Restart a stuck/failed project's render job from scratch: clears the
+     * previous render's cache (temp working dir, output file, copied
+     * download images) and re-dispatches ProcessExportJob using the same
+     * clips_config — so clips, trims, music, logo and images are kept as-is.
+     */
+    public function restart(string $uuid)
+    {
+        $export = Export::where('uuid', $uuid)->firstOrFail();
+
+        abort_unless($export->clips_config, 422, 'This project has no saved configuration to restart from.');
+
+        $config = $export->clips_config;
+
+        // Drop previously copied download images and their recorded paths —
+        // the job will regenerate them fresh.
+        $export->deleteImageCopies();
+        foreach ($config['images'] ?? [] as $i => $image) {
+            unset($config['images'][$i]['download_path']);
+        }
+
+        // Remove the stale rendered output, if any.
+        if ($export->path) {
+            $fullPath = storage_path('app/' . $export->path);
+            if (file_exists($fullPath)) {
+                @unlink($fullPath);
+            }
+        }
+
+        // Remove any leftover temp working directory from the previous/stuck attempt.
+        $tmpDir = storage_path('app/tmp/' . $export->uuid);
+        if (is_dir($tmpDir)) {
+            foreach (glob($tmpDir . '/*') ?: [] as $file) {
+                if (is_file($file)) {
+                    @unlink($file);
+                }
+            }
+            @rmdir($tmpDir);
+        }
+
+        $export->update([
+            'status'         => 'pending',
+            'status_message' => null,
+            'error_message'  => null,
+            'path'           => null,
+            'expires_at'     => null,
+            'clips_config'   => $config,
+        ]);
+
+        $clips = array_map(fn (array $c) => [
+            'uuid'        => $c['uuid'],
+            'trim_start'  => $c['trim_start'],
+            'trim_end'    => $c['trim_end'],
+            'audio_mode'  => $c['audio_mode']  ?? 'full',
+            'audio_start' => $c['audio_start'] ?? 0,
+            'audio_end'   => $c['audio_end']   ?? 0,
+        ], $config['clips'] ?? []);
+
+        $images = array_map(fn (array $i) => $i['uuid'], $config['images'] ?? []);
+
+        ProcessExportJob::dispatch(
+            $export->id,
+            $clips,
+            $config['music_uuid'] ?? null,
+            $config['logo_uuid'] ?? null,
+            $images,
+            (bool) ($config['images_downloadable'] ?? false),
+        );
+
+        if (request()->wantsJson()) {
+            return response()->json(['ok' => true]);
+        }
+
+        return redirect()->back();
+    }
+
+    /**
      * Poll endpoint: returns current status of an export.
      */
     public function status(string $uuid)
