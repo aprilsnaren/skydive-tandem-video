@@ -61,7 +61,8 @@ class EditorController extends Controller
     public function newEditor()
     {
         $initial = [
-            'ffmpegPresets' => config('videoedit.ffmpeg_presets', []),
+            'ffmpegPresets'             => config('videoedit.ffmpeg_presets', []),
+            'ffmpegPresetDescriptions'  => config('videoedit.ffmpeg_preset_descriptions', []),
         ];
 
         return view('editor', compact('initial'));
@@ -143,8 +144,9 @@ class EditorController extends Controller
             'imagesDownloadable' => $imagesDownloadable,
             'uploaderName'       => $export->uploader_name,
             'uploaderMessage'    => $export->uploader_message,
-            'ffmpegPreset'       => $export->ffmpeg_preset,
-            'ffmpegPresets'      => config('videoedit.ffmpeg_presets', []),
+            'ffmpegPreset'             => $export->ffmpeg_preset,
+            'ffmpegPresets'            => config('videoedit.ffmpeg_presets', []),
+            'ffmpegPresetDescriptions' => config('videoedit.ffmpeg_preset_descriptions', []),
         ];
 
         if ($export->isDone() && $export->path) {

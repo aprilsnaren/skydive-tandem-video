@@ -498,7 +498,10 @@
                         <option :value="preset" x-text="preset"></option>
                     </template>
                 </select>
-                <p class="text-gray-600 text-xs mt-1">Slower presets (veryslow, slower, slow) encode a smaller file at the same quality but take longer. Faster presets (faster, veryfast, ultrafast) finish sooner but produce a larger file.</p>
+                <p class="text-gray-600 text-xs mt-1">
+                    Slower presets encode a smaller file at the same quality but take longer; faster presets finish sooner but produce a larger file. Left to right: <span class="text-gray-500" x-text="ffmpegPresets.join(' → ')"></span>.
+                </p>
+                <p x-show="ffmpegPreset && ffmpegPresetDescriptions[ffmpegPreset]" class="text-gray-500 text-xs mt-1" x-text="ffmpegPresetDescriptions[ffmpegPreset]"></p>
             </div>
 
             <div class="grid grid-cols-3 gap-3 text-center">
@@ -652,8 +655,9 @@
             guestName:      initial?.guestName ?? '',
             guestEmail:     initial?.guestEmail ?? '',
 
-            ffmpegPreset:   initial?.ffmpegPreset ?? '',
-            ffmpegPresets:  initial?.ffmpegPresets ?? [],
+            ffmpegPreset:             initial?.ffmpegPreset ?? '',
+            ffmpegPresets:            initial?.ffmpegPresets ?? [],
+            ffmpegPresetDescriptions: initial?.ffmpegPresetDescriptions ?? {},
 
             uploaderName:    initial?.uploaderName ?? null,
             uploaderMessage: initial?.uploaderMessage ?? null,
