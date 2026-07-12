@@ -360,33 +360,56 @@
             <p x-show="imageUploading" class="text-gray-400 text-sm animate-pulse">Uploading photos…</p>
             <p x-show="imageError" x-text="imageError" class="text-red-400 text-sm"></p>
 
-            {{-- Photo grid with reorder/remove --}}
-            <div x-show="images.length" class="grid grid-cols-3 sm:grid-cols-4 gap-3">
-                <template x-for="(img, i) in images" :key="img.uuid">
-                    <div class="bg-gray-800 rounded-lg overflow-hidden">
-                        <template x-if="img.localUrl">
-                            <img :src="img.localUrl" class="w-full h-24 object-cover" :alt="img.original_name">
-                        </template>
-                        <template x-if="!img.localUrl">
-                            <div class="w-full h-24 flex items-center justify-center text-yellow-500/80 text-xs text-center px-2">
-                                File pruned — re-upload to include
+            {{-- Collapsed summary — avoids loading every thumbnail (e.g. 100+ photos
+                 on a returning project) until the editor actually asks to see them --}}
+            <div x-show="images.length > 0 && !photosExpanded" class="flex items-center justify-between bg-gray-800 rounded-xl px-4 py-3">
+                <span class="text-sm text-gray-300" x-text="`${images.length} photo${images.length === 1 ? '' : 's'} attached`"></span>
+                <button @click="photosExpanded = true" class="text-xs brand-text hover:opacity-80 transition font-medium shrink-0">
+                    Show photos
+                </button>
+            </div>
+
+            {{-- Photo grid with reorder/remove. Uses x-if (not x-show) so the
+                 <img> elements — and their network requests — don't exist in
+                 the DOM at all until expanded; x-show would only hide them
+                 with CSS while still fetching every thumbnail. --}}
+            <template x-if="images.length > 0 && photosExpanded">
+                <div>
+                    <button
+                        x-show="images.length > PHOTO_COLLAPSE_THRESHOLD"
+                        @click="photosExpanded = false"
+                        class="text-xs text-gray-500 hover:text-white transition mb-3"
+                    >
+                        Hide photos
+                    </button>
+                    <div class="grid grid-cols-3 sm:grid-cols-4 gap-3">
+                        <template x-for="(img, i) in images" :key="img.uuid">
+                            <div class="bg-gray-800 rounded-lg overflow-hidden">
+                                <template x-if="img.localUrl">
+                                    <img :src="img.localUrl" loading="lazy" class="w-full h-24 object-cover" :alt="img.original_name">
+                                </template>
+                                <template x-if="!img.localUrl">
+                                    <div class="w-full h-24 flex items-center justify-center text-yellow-500/80 text-xs text-center px-2">
+                                        File pruned — re-upload to include
+                                    </div>
+                                </template>
+                                <div class="flex items-center justify-between px-1.5 py-1">
+                                    <button @click="moveImageLeft(i)" :disabled="i === 0" class="text-gray-500 hover:text-white disabled:opacity-20 transition p-0.5" title="Move earlier">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                                    </button>
+                                    <span class="text-[10px] text-gray-500" x-text="i + 1"></span>
+                                    <button @click="moveImageRight(i)" :disabled="i === images.length - 1" class="text-gray-500 hover:text-white disabled:opacity-20 transition p-0.5" title="Move later">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                                    </button>
+                                    <button @click="removeImage(i)" class="text-gray-500 hover:text-red-400 transition p-0.5" title="Remove photo">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                                    </button>
+                                </div>
                             </div>
                         </template>
-                        <div class="flex items-center justify-between px-1.5 py-1">
-                            <button @click="moveImageLeft(i)" :disabled="i === 0" class="text-gray-500 hover:text-white disabled:opacity-20 transition p-0.5" title="Move earlier">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
-                            </button>
-                            <span class="text-[10px] text-gray-500" x-text="i + 1"></span>
-                            <button @click="moveImageRight(i)" :disabled="i === images.length - 1" class="text-gray-500 hover:text-white disabled:opacity-20 transition p-0.5" title="Move later">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                            </button>
-                            <button @click="removeImage(i)" class="text-gray-500 hover:text-red-400 transition p-0.5" title="Remove photo">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-                            </button>
-                        </div>
                     </div>
-                </template>
-            </div>
+                </div>
+            </template>
 
             {{-- Photo settings --}}
             <div x-show="images.length" class="space-y-3 pt-1">
@@ -579,6 +602,7 @@
 
     <script>
     const CHUNK_SIZE = 2 * 1024 * 1024; // 2 MB per chunk
+    const PHOTO_COLLAPSE_THRESHOLD = 12; // above this, photos start collapsed on load
 
     function editor(initial) {
         return {
@@ -623,6 +647,9 @@
                 localUrl:      i.localUrl ?? null,
                 fileExpired:   i.fileExpired ?? false,
             })),
+            // Collapsed by default for large photo sets on a returning project,
+            // so re-opening the editor doesn't fetch every thumbnail up front.
+            photosExpanded: (initial?.images || []).length <= PHOTO_COLLAPSE_THRESHOLD,
             imagesDownloadable: initial?.imagesDownloadable ?? false,
             imageUploading:     false,
             imageError:         null,
@@ -899,6 +926,7 @@
 
                 this.imageUploading = true;
                 this.imageError     = null;
+                this.photosExpanded = true; // show what's being added, even if the set was collapsed
 
                 try {
                     for (const file of files) {
