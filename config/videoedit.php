@@ -28,8 +28,44 @@ return [
     |--------------------------------------------------------------------------
     */
     'ffmpeg_threads' => (int) env('VE_FFMPEG_THREADS', 2),
-    'ffmpeg_preset'  => env('VE_FFMPEG_PRESET', 'fast'), // ultrafast|superfast|veryfast|faster|fast|medium…
+    'ffmpeg_preset'  => env('VE_FFMPEG_PRESET', 'fast'), // default used when an export doesn't pick its own preset
     'ffmpeg_crf'     => (int) env('VE_FFMPEG_CRF', 23),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Presets selectable per export from the editor UI — every preset libx264
+    | supports, slowest/smallest first to fastest/largest last. VE_FFMPEG_PRESET
+    | above only sets the default selection — editors can override it per
+    | export to trade encode speed for file size while experimenting.
+    |
+    | Each step roughly halves (or doubles) encode time relative to its
+    | neighbour, in exchange for output file size at the same visual quality
+    | (quality itself is held constant by ffmpeg_crf, not the preset).
+    |--------------------------------------------------------------------------
+    */
+    'ffmpeg_presets' => [
+        'placebo', 'veryslow', 'slower', 'slow', 'medium',
+        'fast', 'faster', 'veryfast', 'superfast', 'ultrafast',
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Human-readable explanation of each preset, shown in the editor's preset
+    | dropdown. Ordered slowest → fastest, matching ffmpeg_presets above.
+    |--------------------------------------------------------------------------
+    */
+    'ffmpeg_preset_descriptions' => [
+        'placebo'   => 'Marginally smaller file than veryslow for a huge amount of extra encode time. Diminishing returns — not recommended, included for completeness.',
+        'veryslow'  => 'Smallest file size for the given quality. Much slower to encode — use only when file size matters more than turnaround time.',
+        'slower'    => 'Noticeably smaller file than "slow", noticeably slower to encode.',
+        'slow'      => 'Smaller file than "medium" with a moderate increase in encode time. Good choice when you can afford to wait a bit for a leaner file.',
+        'medium'    => 'FFmpeg\'s own default balance of speed and file size.',
+        'fast'      => 'App default. Good balance for short tandem videos — quick turnaround with a reasonable file size.',
+        'faster'    => 'Quicker than "fast" at the cost of a somewhat larger file.',
+        'veryfast'  => 'Fast encodes, larger files. Useful when the queue is backed up and turnaround matters most.',
+        'superfast' => 'Very fast, noticeably larger file. Quality per bit drops more sharply here.',
+        'ultrafast' => 'Fastest possible encode, largest file and lowest quality-per-bit. Use for quick previews or when a slow/overloaded server can\'t keep up otherwise.',
+    ],
 
     /*
     |--------------------------------------------------------------------------

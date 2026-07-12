@@ -114,6 +114,32 @@ All `VE_*` variables are read from `.env` via `config/videoedit.php`.
 | `VE_WATERMARK` | `storage/watermark.png` | Path to watermark PNG |
 | `VE_SPLASH_VIDEO` | `storage/splash.mp4` | Path to splash screen video |
 | `VE_DELETE_AFTER` | `3` | Days before uploads and exports are auto-deleted |
+| `VE_FFMPEG_PRESET` | `fast` | Default FFmpeg `-preset` used when an export doesn't pick its own — editors can override this per export from the "Encode preset" dropdown in the editor UI |
+| `VE_FFMPEG_THREADS` | `2` | FFmpeg encode threads |
+| `VE_FFMPEG_CRF` | `23` | FFmpeg constant rate factor (quality — lower is higher quality/larger file, unaffected by preset) |
+| `VE_EXPORT_TIMEOUT` | `3600` | Job timeout in seconds — see note below on keeping the queue worker's own timeout above this |
+
+### FFmpeg encode presets
+
+All exports use libx264. The preset trades encode **speed** for output **file
+size** at the same visual quality (`VE_FFMPEG_CRF` controls quality, not the
+preset) — it does not affect how long the final video plays, only how long
+the export job takes and how big the resulting MP4 is. `VE_FFMPEG_PRESET`
+sets the site-wide default; editors can override it per export from the
+"Encode preset" dropdown on the export step.
+
+| Preset | Speed vs. file size | Notes |
+|---|---|---|
+| `placebo` | Slowest, marginally smaller file than `veryslow` | Enormous encode time for a tiny size gain over `veryslow`. Not recommended in practice — included so every libx264 option is available. |
+| `veryslow` | Very slow | Smallest file for a given quality. Use when storage/bandwidth matters more than turnaround time. |
+| `slower` | Slow | Noticeably smaller file than `slow`, noticeably slower. |
+| `slow` | Moderately slow | Smaller file than `medium` for a moderate time cost. |
+| `medium` | Balanced | FFmpeg's own built-in default. |
+| `fast` | Balanced-fast | **App default.** Good turnaround for short tandem videos with a reasonable file size. |
+| `faster` | Fast | Quicker than `fast`, somewhat larger file. |
+| `veryfast` | Very fast | Large file, useful when the export queue is backed up and turnaround matters most. |
+| `superfast` | Very fast | Noticeably larger file; quality-per-bit drops off more here. |
+| `ultrafast` | Fastest | Largest file, lowest quality-per-bit. Good for quick previews or an overloaded server that can't otherwise keep up. |
 
 Paths can be absolute or relative to the project root.
 
@@ -139,6 +165,29 @@ In **production**, manage the queue worker with Supervisor and add the scheduler
 ```
 * * * * * cd /path/to/app && php artisan schedule:run >> /dev/null 2>&1
 ```
+
+### Avoiding `ProcessTimedOutException`
+
+Whatever manages the queue worker (Supervisor, or a hosting panel's queue-worker
+UI like Ploi's) has its **own** process timeout, separate from the job's own
+`$timeout` (set from `VE_EXPORT_TIMEOUT`, default 3600s/1h). If the worker's
+timeout is lower — Laravel's `queue:work` defaults to just **60 seconds** when
+no `--timeout` is passed — it will kill the PHP worker process mid-encode and
+throw `Symfony\Component\Process\Exception\ProcessTimedOutException`, even
+though the job itself would have kept running for much longer.
+
+Make sure the worker is started with a timeout at or above `VE_EXPORT_TIMEOUT`:
+
+```bash
+php artisan queue:work --timeout=3600
+```
+
+If you're using a hosting panel to manage the worker, set its "Timeout" (and
+ideally "Max Tries") fields to match — don't rely only on the `.env` value,
+since the CLI flag the panel passes takes precedence. When a job does
+ultimately time out or exhaust its retries, the export is now marked
+`failed` (with a retry button in the dashboard/editor) instead of being
+stuck at "processing" forever.
 
 ---
 

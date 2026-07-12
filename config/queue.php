@@ -40,7 +40,10 @@ return [
             'connection' => env('DB_QUEUE_CONNECTION'),
             'table' => env('DB_QUEUE_TABLE', 'jobs'),
             'queue' => env('DB_QUEUE', 'default'),
-            'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 90),
+            // Must stay above videoedit.export_timeout (default 3600s) — otherwise
+            // the queue considers a still-running export "lost" and lets another
+            // worker pick it up again while the first is mid-encode.
+            'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 3900),
             'after_commit' => false,
         ],
 

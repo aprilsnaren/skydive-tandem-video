@@ -28,8 +28,34 @@ class ProcessExportJob implements ShouldQueue
         private readonly ?string $logoUuid = null,
         private readonly array $images = [],
         private readonly bool $imagesDownloadable = false,
+        private readonly ?string $ffmpegPreset = null,
     ) {
         $this->timeout = (int) config('videoedit.export_timeout', 3600);
+    }
+
+    /**
+     * Called by the queue worker when every attempt is exhausted — including
+     * when the worker's own process timeout kills the job mid-encode, which
+     * bypasses the try/catch in handle() entirely. Without this, a hard
+     * timeout leaves the export stuck at "processing" forever with no way
+     * for editors to see it died or retry it.
+     */
+    public function failed(\Throwable $exception): void
+    {
+        $export = Export::find($this->exportId);
+        if (!$export || $export->isDone()) {
+            return;
+        }
+
+        $export->update([
+            'status'         => 'failed',
+            'status_message' => null,
+            'error_message'  => str_contains($exception->getMessage(), 'has been attempted too many times or run too long')
+                ? 'Export timed out — it was taking longer than the configured export timeout.'
+                : $exception->getMessage(),
+        ]);
+
+        $this->cleanupTmp(storage_path('app/tmp/' . $export->uuid));
     }
 
     public function handle(): void
@@ -479,7 +505,7 @@ class ProcessExportJob implements ShouldQueue
     {
         return sprintf(
             '-preset %s -crf %d -threads %d',
-            config('videoedit.ffmpeg_preset', 'fast'),
+            $this->ffmpegPreset ?? config('videoedit.ffmpeg_preset', 'fast'),
             (int) config('videoedit.ffmpeg_crf', 23),
             (int) config('videoedit.ffmpeg_threads', 2),
         );

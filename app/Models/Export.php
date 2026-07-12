@@ -10,7 +10,7 @@ class Export extends Model
     protected $fillable = [
         'uuid', 'guest_name', 'guest_email', 'path', 'status',
         'uploader_name', 'uploader_message',
-        'status_message', 'error_message', 'clips_config',
+        'status_message', 'error_message', 'clips_config', 'ffmpeg_preset',
         'expires_at',
         'email_ready_at', 'email_reminder_at', 'email_tomorrow_at', 'email_today_at',
         'downloaded_at',

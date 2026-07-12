@@ -60,7 +60,12 @@ class EditorController extends Controller
 
     public function newEditor()
     {
-        return view('editor');
+        $initial = [
+            'ffmpegPresets'             => config('videoedit.ffmpeg_presets', []),
+            'ffmpegPresetDescriptions'  => config('videoedit.ffmpeg_preset_descriptions', []),
+        ];
+
+        return view('editor', compact('initial'));
     }
 
     public function editExport(string $uuid)
@@ -139,6 +144,9 @@ class EditorController extends Controller
             'imagesDownloadable' => $imagesDownloadable,
             'uploaderName'       => $export->uploader_name,
             'uploaderMessage'    => $export->uploader_message,
+            'ffmpegPreset'             => $export->ffmpeg_preset,
+            'ffmpegPresets'            => config('videoedit.ffmpeg_presets', []),
+            'ffmpegPresetDescriptions' => config('videoedit.ffmpeg_preset_descriptions', []),
         ];
 
         if ($export->isDone() && $export->path) {
@@ -294,11 +302,13 @@ class EditorController extends Controller
             'guest_name'           => ['nullable', 'string', 'max:100'],
             'guest_email'          => ['nullable', 'email', 'max:254'],
             'draft_uuid'           => ['nullable', 'string'],
+            'ffmpeg_preset'        => ['nullable', 'string', 'in:' . implode(',', config('videoedit.ffmpeg_presets', []))],
         ]);
 
         $clips     = $request->input('clips');
         $musicUuid = $request->input('music_uuid');
         $logoUuid  = $request->input('logo_uuid');
+        $ffmpegPreset = $request->input('ffmpeg_preset') ?: null;
 
         $images             = $request->input('images') ?: [];
         $imagesDownloadable = $request->boolean('images_downloadable');
@@ -330,10 +340,11 @@ class EditorController extends Controller
         ];
 
         $attributes = [
-            'status'       => 'pending',
-            'guest_name'   => $request->input('guest_name') ?: null,
-            'guest_email'  => $request->input('guest_email') ?: null,
-            'clips_config' => $clipsConfig,
+            'status'        => 'pending',
+            'guest_name'    => $request->input('guest_name') ?: null,
+            'guest_email'   => $request->input('guest_email') ?: null,
+            'clips_config'  => $clipsConfig,
+            'ffmpeg_preset' => $ffmpegPreset,
         ];
 
         // Exporting a portal draft consumes it (keeps uuid + uploader info)
@@ -355,6 +366,7 @@ class EditorController extends Controller
             $logoUuid,
             $images,
             $imagesDownloadable,
+            $ffmpegPreset,
         );
 
         return response()->json([
@@ -450,6 +462,7 @@ class EditorController extends Controller
             $config['logo_uuid'] ?? null,
             $images,
             (bool) ($config['images_downloadable'] ?? false),
+            $export->ffmpeg_preset,
         );
 
         if (request()->wantsJson()) {
