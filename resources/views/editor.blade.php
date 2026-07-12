@@ -530,11 +530,14 @@
                     <span class="text-white font-medium" x-text="exportStep || 'Queued…'"></span>
                     <span class="ml-auto text-gray-500 tabular-nums shrink-0" x-text="formatElapsed(exportElapsed)"></span>
                 </div>
-                <div x-show="exportStalled" class="text-yellow-400 text-xs flex items-start gap-1.5">
-                    <svg class="w-4 h-4 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
-                    </svg>
-                    Taking longer than expected. FFmpeg is still running — large clips can take several minutes.
+                <div x-show="exportStalled" class="text-yellow-400 text-xs space-y-2">
+                    <div class="flex items-start gap-1.5">
+                        <svg class="w-4 h-4 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                        </svg>
+                        <span>Taking longer than expected. FFmpeg is still running — large clips can take several minutes. If you think it's stuck, you can restart the render.</span>
+                    </div>
+                    <button @click="restartExport()" class="text-xs text-yellow-400 hover:text-white transition underline">Restart render</button>
                 </div>
             </div>
 
@@ -594,7 +597,10 @@
                 <p class="text-red-400 font-semibold text-sm">Export failed</p>
                 <p x-show="exportErrMsg" x-text="exportErrMsg" class="text-red-300 text-xs font-mono break-all"></p>
                 <p x-show="!exportErrMsg" class="text-red-300 text-xs">Unknown error. Check the server logs.</p>
-                <button @click="exportFailed = false; exportErrMsg = null" class="text-xs text-red-400 hover:text-white transition underline mt-1">Dismiss and try again</button>
+                <div class="flex items-center gap-4 mt-1">
+                    <button @click="restartExport()" class="text-xs text-red-400 hover:text-white transition underline">Restart export</button>
+                    <button @click="exportFailed = false; exportErrMsg = null" class="text-xs text-gray-500 hover:text-white transition underline">Dismiss</button>
+                </div>
             </div>
         </section>
 
@@ -1050,6 +1056,39 @@
 
                     const data      = await resp.json();
                     this.exportUuid = data.export_uuid;
+                    this.pollStatus();
+                } catch (err) {
+                    this.exportError = err.message;
+                    this.exporting   = false;
+                }
+            },
+
+            async restartExport() {
+                if (!this.exportUuid) return;
+                if (!confirm('Restart this render from scratch? This clears the cached render and starts over — clips, trims, music and images are kept.')) return;
+
+                this.exportError   = null;
+                this.exportFailed  = false;
+                this.exportErrMsg  = null;
+                this.exportStep    = null;
+                this.exportElapsed = 0;
+                this.exportStalled = false;
+                this.exporting     = true;
+
+                try {
+                    const resp = await fetch(`/export/${this.exportUuid}/restart`, {
+                        method:  'POST',
+                        headers: {
+                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                            'Accept':       'application/json',
+                        },
+                    });
+
+                    if (!resp.ok) {
+                        const data = await resp.json().catch(() => ({}));
+                        throw new Error(data.message || 'Restart request failed');
+                    }
+
                     this.pollStatus();
                 } catch (err) {
                     this.exportError = err.message;
