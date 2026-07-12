@@ -42,12 +42,14 @@
                 @foreach ($exports as $export)
                     @php
                         $statusColors = [
+                            'draft'      => 'bg-purple-900/60 text-purple-300 border-purple-700',
                             'pending'    => 'bg-yellow-900/60 text-yellow-300 border-yellow-700',
                             'processing' => 'bg-blue-900/60 text-blue-300 border-blue-700',
                             'done'       => 'bg-green-900/60 text-green-300 border-green-700',
                             'failed'     => 'bg-red-900/60 text-red-300 border-red-700',
                         ];
                         $statusColor = $statusColors[$export->status] ?? 'bg-gray-800 text-gray-400 border-gray-700';
+                        $statusLabel = $export->status === 'draft' ? 'New files' : ucfirst($export->status);
                     @endphp
 
                     <div class="bg-gray-900 rounded-2xl px-6 py-5 flex flex-col sm:flex-row sm:items-center gap-4">
@@ -59,7 +61,7 @@
                                     {{ $export->guest_name ?: 'Unnamed guest' }}
                                 </span>
                                 <span class="text-xs font-medium border px-2 py-0.5 rounded-full {{ $statusColor }}">
-                                    {{ ucfirst($export->status) }}
+                                    {{ $statusLabel }}
                                 </span>
 
                                 @if ($export->email_ready_at)
@@ -86,6 +88,9 @@
                                 @if ($export->guest_email)
                                     <span>{{ $export->guest_email }}</span>
                                 @endif
+                                @if ($export->uploader_name)
+                                    <span>Uploaded by {{ $export->uploader_name }}</span>
+                                @endif
                                 <span>Created {{ $export->created_at->diffForHumans() }}</span>
                                 @if ($export->expires_at)
                                     <span class="{{ $export->expires_at->isPast() ? 'text-red-500' : '' }}">
@@ -93,6 +98,10 @@
                                     </span>
                                 @endif
                             </div>
+
+                            @if ($export->uploader_message)
+                                <p class="text-xs text-gray-400 italic mt-1 truncate">&ldquo;{{ Str::limit($export->uploader_message, 140) }}&rdquo;</p>
+                            @endif
 
                             @if ($export->status === 'failed' && $export->error_message)
                                 <p class="text-xs text-red-400 font-mono mt-1 truncate">{{ Str::limit($export->error_message, 120) }}</p>

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\HandlesChunkedUploads;
 use App\Jobs\ProcessExportJob;
 use App\Models\Export;
 use App\Models\Upload;
@@ -11,6 +12,8 @@ use Illuminate\Support\Str;
 
 class EditorController extends Controller
 {
+    use HandlesChunkedUploads;
+
     // -------------------------------------------------------------------------
     // Auth
     // -------------------------------------------------------------------------
@@ -71,8 +74,6 @@ class EditorController extends Controller
         $logoUuid  = null;
         $logo      = null;
         $images    = [];
-        $imagesInVideo      = true;
-        $imageDuration      = (float) config('videoedit.image_duration', 5);
         $imagesDownloadable = false;
 
         if ($export->clips_config) {
@@ -90,8 +91,6 @@ class EditorController extends Controller
                 ];
             }
 
-            $imagesInVideo      = (bool) ($config['images_in_video'] ?? true);
-            $imageDuration      = (float) ($config['image_duration'] ?? config('videoedit.image_duration', 5));
             $imagesDownloadable = (bool) ($config['images_downloadable'] ?? false);
 
             foreach ($config['images'] ?? [] as $image) {
@@ -112,10 +111,11 @@ class EditorController extends Controller
 
                 $clips[] = [
                     'uuid'          => $clip['uuid'],
-                    'original_name' => $clip['original_name'],
+                    'original_name' => $clip['original_name'] ?? '',
                     'localUrl'      => $fileExists ? route('uploads.stream', $clip['uuid']) : null,
                     'trim_start'    => (float) ($clip['trim_start'] ?? 0),
-                    'trim_end'      => (float) ($clip['trim_end'] ?? 0),
+                    // null trim_end (portal intake) → editor fills it from the video's duration
+                    'trim_end'      => isset($clip['trim_end']) ? (float) $clip['trim_end'] : null,
                     'audio_mode'    => $clip['audio_mode']  ?? 'full',
                     'audio_start'   => isset($clip['audio_start']) ? (float) $clip['audio_start'] : 0,
                     'audio_end'     => isset($clip['audio_end'])   ? (float) $clip['audio_end']   : 0,
@@ -136,9 +136,9 @@ class EditorController extends Controller
             'logoUuid'    => $logoUuid,
             'logo'        => $logo,
             'images'      => $images,
-            'imagesInVideo'      => $imagesInVideo,
-            'imageDuration'      => $imageDuration,
             'imagesDownloadable' => $imagesDownloadable,
+            'uploaderName'       => $export->uploader_name,
+            'uploaderMessage'    => $export->uploader_message,
         ];
 
         if ($export->isDone() && $export->path) {
@@ -155,6 +155,12 @@ class EditorController extends Controller
 
         if (in_array($export->status, ['pending', 'processing'])) {
             $initial['exportUuid'] = $export->uuid;
+        }
+
+        // Portal drafts: exporting should consume the draft rather than
+        // leaving it behind as a duplicate project.
+        if ($export->isDraft()) {
+            $initial['draftUuid'] = $export->uuid;
         }
 
         return view('editor', compact('initial'));
@@ -174,83 +180,12 @@ class EditorController extends Controller
     }
 
     /**
-     * Receive a single chunk of a video file and reassemble when complete.
-     *
-     * POST fields:
-     *   chunk    — file blob for this chunk
-     *   uuid     — client-generated UUID for the whole file (used as tmp dir name)
-     *   index    — 0-based chunk index
-     *   total    — total number of chunks
-     *   filename — original file name
-     *   type     — 'video' | 'music'
+     * Receive a single chunk of a file and reassemble when complete.
+     * See HandlesChunkedUploads for the field contract.
      */
     public function chunk(Request $request)
     {
-        $request->validate([
-            'chunk'    => ['required', 'file'],
-            'uuid'     => ['required', 'string', 'regex:/^[0-9a-f\-]{36}$/i'],
-            'index'    => ['required', 'integer', 'min:0'],
-            'total'    => ['required', 'integer', 'min:1', 'max:10000'],
-            'filename' => ['required', 'string', 'max:255'],
-            'type'     => ['nullable', 'in:video,music'],
-        ]);
-
-        $uuid     = $request->input('uuid');
-        $index    = (int) $request->input('index');
-        $total    = (int) $request->input('total');
-        $filename = $request->input('filename');
-        $type     = $request->input('type', 'video');
-
-        $tmpDir = storage_path("app/tmp/{$uuid}");
-        if (!is_dir($tmpDir)) {
-            mkdir($tmpDir, 0755, true);
-        }
-
-        // Save this chunk
-        $request->file('chunk')->move($tmpDir, "chunk_{$index}");
-
-        // Not all chunks arrived yet
-        $received = count(glob("{$tmpDir}/chunk_*"));
-        if ($received < $total) {
-            return response()->json(['status' => 'partial', 'received' => $received, 'total' => $total]);
-        }
-
-        // --- All chunks received — reassemble ---
-        $safeBase    = Str::slug(pathinfo($filename, PATHINFO_FILENAME), '_') ?: 'file';
-        $ext         = strtolower(pathinfo($filename, PATHINFO_EXTENSION)) ?: ($type === 'music' ? 'mp3' : 'mp4');
-        $storagePath = "videos/{$uuid}_{$safeBase}.{$ext}";
-        $finalPath   = storage_path("app/{$storagePath}");
-
-        @mkdir(storage_path('app/videos'), 0755, true);
-
-        $out = fopen($finalPath, 'wb');
-        for ($i = 0; $i < $total; $i++) {
-            $fp = fopen("{$tmpDir}/chunk_{$i}", 'rb');
-            while (!feof($fp)) {
-                fwrite($out, fread($fp, 65536));
-            }
-            fclose($fp);
-        }
-        fclose($out);
-
-        // Cleanup tmp dir
-        foreach (glob("{$tmpDir}/chunk_*") ?: [] as $f) {
-            @unlink($f);
-        }
-        @rmdir($tmpDir);
-
-        // Save to DB
-        $upload = Upload::create([
-            'uuid'          => $uuid,
-            'original_name' => $filename,
-            'path'          => $storagePath,
-        ]);
-
-        return response()->json([
-            'status'        => 'done',
-            'uuid'          => $upload->uuid,
-            'original_name' => $upload->original_name,
-        ]);
+        return $this->handleChunkedUpload($request);
     }
 
     /**
@@ -335,11 +270,8 @@ class EditorController extends Controller
      *   music_uuid           — optional upload UUID of the music file
      *   logo_uuid            — optional upload UUID of the logo image
      *   images[]             — optional ordered array of upload UUIDs (end photos).
-     *                          Only the first `videoedit.max_images_in_video` are
-     *                          burned into the video; the rest are still uploaded
-     *                          and downloadable if images_downloadable is set.
-     *   images_in_video      — append the photos to the end of the video (before the logo)
-     *   image_duration       — seconds each photo is shown in the video
+     *                          Never embedded in the video — only offered as a
+     *                          separate download on the share page.
      *   images_downloadable  — offer the photos as separate downloads on the share page
      *   guest_name           — optional guest name
      *   guest_email          — optional guest email
@@ -358,11 +290,10 @@ class EditorController extends Controller
             'logo_uuid'            => ['nullable', 'string', 'exists:uploads,uuid'],
             'images'               => ['nullable', 'array', 'max:' . config('videoedit.max_images_upload', 200)],
             'images.*'             => ['required', 'string', 'exists:uploads,uuid'],
-            'images_in_video'      => ['nullable', 'boolean'],
-            'image_duration'       => ['nullable', 'numeric', 'min:1', 'max:60'],
             'images_downloadable'  => ['nullable', 'boolean'],
             'guest_name'           => ['nullable', 'string', 'max:100'],
             'guest_email'          => ['nullable', 'email', 'max:254'],
+            'draft_uuid'           => ['nullable', 'string'],
         ]);
 
         $clips     = $request->input('clips');
@@ -370,8 +301,6 @@ class EditorController extends Controller
         $logoUuid  = $request->input('logo_uuid');
 
         $images             = $request->input('images') ?: [];
-        $imagesInVideo      = $request->boolean('images_in_video', true);
-        $imageDuration      = (float) ($request->input('image_duration') ?: config('videoedit.image_duration', 5));
         $imagesDownloadable = $request->boolean('images_downloadable');
 
         // Build the clips_config snapshot for later re-editing.
@@ -397,17 +326,27 @@ class EditorController extends Controller
                     'original_name' => Upload::where('uuid', $uuid)->value('original_name') ?? '',
                 ];
             }, $images),
-            'images_in_video'     => $imagesInVideo,
-            'image_duration'      => $imageDuration,
             'images_downloadable' => $imagesDownloadable,
         ];
 
-        $export = Export::create([
+        $attributes = [
             'status'       => 'pending',
             'guest_name'   => $request->input('guest_name') ?: null,
             'guest_email'  => $request->input('guest_email') ?: null,
             'clips_config' => $clipsConfig,
-        ]);
+        ];
+
+        // Exporting a portal draft consumes it (keeps uuid + uploader info)
+        // instead of leaving a duplicate project on the dashboard.
+        $export = null;
+        if ($request->input('draft_uuid')) {
+            $export = Export::where('uuid', $request->input('draft_uuid'))
+                ->where('status', 'draft')
+                ->first();
+            $export?->update($attributes);
+        }
+
+        $export ??= Export::create($attributes);
 
         ProcessExportJob::dispatch(
             $export->id,
@@ -415,8 +354,6 @@ class EditorController extends Controller
             $musicUuid,
             $logoUuid,
             $images,
-            $imagesInVideo,
-            $imageDuration,
             $imagesDownloadable,
         );
 

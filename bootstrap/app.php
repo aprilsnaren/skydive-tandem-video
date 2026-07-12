@@ -12,7 +12,8 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
-            'editor.auth' => \App\Http\Middleware\EditorAuth::class,
+            'editor.auth'   => \App\Http\Middleware\EditorAuth::class,
+            'uploader.auth' => \App\Http\Middleware\UploaderAuth::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

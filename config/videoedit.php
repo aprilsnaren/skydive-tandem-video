@@ -18,6 +18,32 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | FFmpeg encode settings — the biggest lever on encode speed is threads.
+    | It's capped at 2 by default to avoid one export starving the rest of a
+    | small VPS, but if the server has more cores to spare (check `nproc`),
+    | raising VE_FFMPEG_THREADS (or setting it to 0 for "use all cores") can
+    | cut encode time dramatically — especially for high-resolution source
+    | footage (4K/60fps action-cam or drone clips are the common cause of
+    | slow encodes even when the final video is short).
+    |--------------------------------------------------------------------------
+    */
+    'ffmpeg_threads' => (int) env('VE_FFMPEG_THREADS', 2),
+    'ffmpeg_preset'  => env('VE_FFMPEG_PRESET', 'fast'), // ultrafast|superfast|veryfast|faster|fast|medium…
+    'ffmpeg_crf'     => (int) env('VE_FFMPEG_CRF', 23),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Export job timeout in seconds. If FFmpeg is still running when this
+    | elapses, the queue worker kills the job (TimeoutExceededException) even
+    | mid-encode. Raise this if exports are timing out on slow encodes rather
+    | than failing outright — tune ffmpeg_threads/ffmpeg_preset first though,
+    | since a faster encode helps every export, not just the timeout case.
+    |--------------------------------------------------------------------------
+    */
+    'export_timeout' => (int) env('VE_EXPORT_TIMEOUT', 3600),
+
+    /*
+    |--------------------------------------------------------------------------
     | Logo end-card duration in seconds (appended when a logo is uploaded)
     |--------------------------------------------------------------------------
     */
@@ -25,25 +51,9 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Default seconds each end photo is shown in the video (editor can override)
-    |--------------------------------------------------------------------------
-    */
-    'image_duration' => (int) env('VE_IMAGE_DURATION', 5),
-
-    /*
-    |--------------------------------------------------------------------------
-    | Max end photos actually burned into the video. Beyond this, extra
-    | photos are still uploaded and (if enabled) downloadable — they're just
-    | not included in the video itself, to keep the FFmpeg filter graph and
-    | encode time bounded.
-    |--------------------------------------------------------------------------
-    */
-    'max_images_in_video' => (int) env('VE_MAX_IMAGES_IN_VIDEO', 30),
-
-    /*
-    |--------------------------------------------------------------------------
-    | Max end photos that can be attached to a single export in total
-    | (uploaded + downloadable), regardless of whether they're in the video.
+    | Max end photos that can be attached to a single export. Photos are
+    | never embedded in the video — they're only offered as a separate
+    | download on the share page.
     |--------------------------------------------------------------------------
     */
     'max_images_upload' => (int) env('VE_MAX_IMAGES_UPLOAD', 200),
@@ -78,6 +88,24 @@ return [
     |--------------------------------------------------------------------------
     */
     'editor_password' => env('EDITOR_PASSWORD', null),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Uploader password — required to access the /portal upload page where
+    | external uploaders submit raw footage. Separate from the editor password
+    | so uploaders can't reach the dashboard. Null disables the portal.
+    |--------------------------------------------------------------------------
+    */
+    'uploader_password' => env('UPLOADER_PASSWORD', null),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Days that raw files submitted via the uploader portal are kept before
+    | pruning (regular uploads are pruned after 12 hours). Drafts themselves
+    | are removed by the existing delete_after_days rule.
+    |--------------------------------------------------------------------------
+    */
+    'intake_keep_days' => (int) env('VE_INTAKE_KEEP_DAYS', 7),
 
     /*
     |--------------------------------------------------------------------------

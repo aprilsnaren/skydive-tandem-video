@@ -50,7 +50,7 @@
 
         <label
             class="flex flex-col items-center justify-center border-2 border-dashed rounded-2xl p-14 cursor-pointer transition w-full max-w-lg"
-            :class="pendingUploads.length ? 'border-[color:var(--brand)] opacity-60 pointer-events-none' : 'border-gray-600 hover:border-[color:var(--brand)]'"
+            :class="uploadsInProgress ? 'border-[color:var(--brand)] opacity-60 pointer-events-none' : 'border-gray-600 hover:border-[color:var(--brand)]'"
             @dragover.prevent
             @drop.prevent="dropFiles($event)"
         >
@@ -60,23 +60,28 @@
             </svg>
             <span class="text-white font-semibold text-lg mb-1">Drop clips here</span>
             <span class="text-gray-400 text-sm">or click to browse — MP4, MOV, AVI, WebM</span>
-            <input type="file" multiple accept="video/*" class="hidden" @change="addClips($event)" :disabled="pendingUploads.length > 0">
+            <input type="file" multiple accept="video/*" class="hidden" @change="addClips($event)" :disabled="uploadsInProgress">
         </label>
 
         {{-- Per-file upload progress --}}
         <div x-show="pendingUploads.length > 0" class="w-full max-w-lg mt-6 space-y-3">
             <template x-for="p in pendingUploads" :key="p.uuid">
                 <div class="bg-gray-900 rounded-xl px-4 py-3 space-y-2">
-                    <div class="flex items-center justify-between text-sm">
-                        <span class="text-gray-300 truncate max-w-xs" x-text="p.name"></span>
-                        <span x-show="!p.error" class="text-gray-400 shrink-0 ml-2" x-text="p.progress + '%'"></span>
-                        <span x-show="p.error" class="text-red-400 shrink-0 ml-2 text-xs" x-text="p.error"></span>
+                    <div class="flex items-center justify-between text-sm gap-2">
+                        <span class="text-gray-300 truncate" x-text="p.name"></span>
+                        <span x-show="p.status === 'pending'" class="text-gray-500 shrink-0 text-xs">Waiting&hellip;</span>
+                        <span x-show="p.status === 'uploading'" class="text-gray-400 shrink-0 text-xs tabular-nums" x-text="p.progress + '%'"></span>
+                        <span x-show="p.status === 'done'" class="text-green-400 shrink-0 text-xs flex items-center gap-1">
+                            <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                            Done
+                        </span>
+                        <span x-show="p.status === 'error'" class="text-red-400 shrink-0 text-xs" x-text="p.error"></span>
                     </div>
                     <div class="h-1.5 bg-gray-700 rounded-full overflow-hidden">
                         <div
-                            class="h-full brand-bg rounded-full transition-all duration-150"
-                            :class="p.error ? 'bg-red-500' : ''"
-                            :style="`width: ${p.error ? 100 : p.progress}%`"
+                            class="h-full rounded-full transition-all duration-150"
+                            :class="p.status === 'error' ? 'bg-red-500' : (p.status === 'done' ? 'bg-green-500' : 'brand-bg')"
+                            :style="`width: ${p.status === 'error' || p.status === 'done' ? 100 : p.progress}%`"
                         ></div>
                     </div>
                 </div>
@@ -92,6 +97,17 @@
     {{-- -------------------------------------------------------------------- --}}
     <main x-show="isReturning || clips.length > 0 || pendingUploads.length > 0" class="max-w-3xl mx-auto px-4 py-8 space-y-6">
 
+        {{-- Uploader info (portal submissions) --}}
+        <div x-show="uploaderName" class="bg-purple-950/50 border border-purple-800 rounded-2xl px-5 py-4 text-sm">
+            <p class="text-purple-300 font-medium flex items-center gap-2">
+                <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6H16a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10"/>
+                </svg>
+                <span x-text="`Files uploaded by ${uploaderName}`"></span>
+            </p>
+            <p x-show="uploaderMessage" class="text-purple-200/70 mt-1.5 whitespace-pre-line" x-text="uploaderMessage"></p>
+        </div>
+
         {{-- ---------------------------------------------------------------- --}}
         {{-- Step 1: Clips — trim + preview + reorder                         --}}
         {{-- ---------------------------------------------------------------- --}}
@@ -103,12 +119,12 @@
                 </div>
 
                 {{-- Add more clips button --}}
-                <label class="cursor-pointer text-sm brand-text hover:opacity-80 transition flex items-center gap-1.5" :class="{'opacity-50 pointer-events-none': pendingUploads.length}">
+                <label class="cursor-pointer text-sm brand-text hover:opacity-80 transition flex items-center gap-1.5" :class="{'opacity-50 pointer-events-none': uploadsInProgress}">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
                     </svg>
                     Add clips
-                    <input type="file" multiple accept="video/*" class="hidden" @change="addClips($event)" :disabled="pendingUploads.length > 0">
+                    <input type="file" multiple accept="video/*" class="hidden" @change="addClips($event)" :disabled="uploadsInProgress">
                 </label>
             </div>
 
@@ -118,16 +134,21 @@
             <div x-show="pendingUploads.length > 0" class="space-y-2">
                 <template x-for="p in pendingUploads" :key="p.uuid">
                     <div class="bg-gray-800 rounded-xl px-4 py-3 space-y-2">
-                        <div class="flex items-center justify-between text-sm">
-                            <span class="text-gray-300 truncate max-w-xs" x-text="p.name"></span>
-                            <span x-show="!p.error" class="text-gray-400 shrink-0 ml-2" x-text="p.progress + '%'"></span>
-                            <span x-show="p.error" class="text-red-400 shrink-0 ml-2 text-xs" x-text="p.error"></span>
+                        <div class="flex items-center justify-between text-sm gap-2">
+                            <span class="text-gray-300 truncate" x-text="p.name"></span>
+                            <span x-show="p.status === 'pending'" class="text-gray-500 shrink-0 text-xs">Waiting&hellip;</span>
+                            <span x-show="p.status === 'uploading'" class="text-gray-400 shrink-0 text-xs tabular-nums" x-text="p.progress + '%'"></span>
+                            <span x-show="p.status === 'done'" class="text-green-400 shrink-0 text-xs flex items-center gap-1">
+                                <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                                Done
+                            </span>
+                            <span x-show="p.status === 'error'" class="text-red-400 shrink-0 text-xs" x-text="p.error"></span>
                         </div>
                         <div class="h-1.5 bg-gray-700 rounded-full overflow-hidden">
                             <div
-                                class="h-full brand-bg rounded-full transition-all duration-150"
-                                :class="p.error ? 'bg-red-500' : ''"
-                                :style="`width: ${p.error ? 100 : p.progress}%`"
+                                class="h-full rounded-full transition-all duration-150"
+                                :class="p.status === 'error' ? 'bg-red-500' : (p.status === 'done' ? 'bg-green-500' : 'brand-bg')"
+                                :style="`width: ${p.status === 'error' || p.status === 'done' ? 100 : p.progress}%`"
                             ></div>
                         </div>
                     </div>
@@ -289,7 +310,7 @@
 
             <label
                 class="flex items-center gap-4 border border-gray-700 rounded-xl px-4 py-3 cursor-pointer hover:border-[color:var(--brand)] transition"
-                :class="{ 'opacity-50 pointer-events-none': pendingUploads.length }"
+                :class="{ 'opacity-50 pointer-events-none': uploadsInProgress }"
             >
                 <svg class="w-6 h-6 text-gray-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -308,7 +329,7 @@
                     </div>
                 </template>
 
-                <input type="file" accept="audio/*" class="hidden" @change="setMusic($event)" :disabled="pendingUploads.length > 0">
+                <input type="file" accept="audio/*" class="hidden" @change="setMusic($event)" :disabled="uploadsInProgress">
             </label>
 
             <button x-show="music" @click="clearMusic()" class="text-xs text-gray-500 hover:text-red-400 transition">
@@ -323,7 +344,7 @@
             <div class="flex items-center justify-between">
                 <div>
                     <h2 class="text-lg font-semibold">3. Photos <span class="text-gray-500 text-sm font-normal">(optional)</span></h2>
-                    <p class="text-gray-500 text-sm mt-0.5">Shown at the end of the video, before the logo end card, and/or offered as separate downloads.</p>
+                    <p class="text-gray-500 text-sm mt-0.5">Not included in the video — offered to the guest as a separate download on the share page.</p>
                 </div>
 
                 {{-- Add photos button --}}
@@ -339,53 +360,59 @@
             <p x-show="imageUploading" class="text-gray-400 text-sm animate-pulse">Uploading photos…</p>
             <p x-show="imageError" x-text="imageError" class="text-red-400 text-sm"></p>
 
-            {{-- Photo grid with reorder/remove --}}
-            <div x-show="images.length" class="grid grid-cols-3 sm:grid-cols-4 gap-3">
-                <template x-for="(img, i) in images" :key="img.uuid">
-                    <div class="bg-gray-800 rounded-lg overflow-hidden">
-                        <template x-if="img.localUrl">
-                            <img :src="img.localUrl" class="w-full h-24 object-cover" :alt="img.original_name">
-                        </template>
-                        <template x-if="!img.localUrl">
-                            <div class="w-full h-24 flex items-center justify-center text-yellow-500/80 text-xs text-center px-2">
-                                File pruned — re-upload to include
+            {{-- Collapsed summary — avoids loading every thumbnail (e.g. 100+ photos
+                 on a returning project) until the editor actually asks to see them --}}
+            <div x-show="images.length > 0 && !photosExpanded" class="flex items-center justify-between bg-gray-800 rounded-xl px-4 py-3">
+                <span class="text-sm text-gray-300" x-text="`${images.length} photo${images.length === 1 ? '' : 's'} attached`"></span>
+                <button @click="photosExpanded = true" class="text-xs brand-text hover:opacity-80 transition font-medium shrink-0">
+                    Show photos
+                </button>
+            </div>
+
+            {{-- Photo grid with reorder/remove. Uses x-if (not x-show) so the
+                 <img> elements — and their network requests — don't exist in
+                 the DOM at all until expanded; x-show would only hide them
+                 with CSS while still fetching every thumbnail. --}}
+            <template x-if="images.length > 0 && photosExpanded">
+                <div>
+                    <button
+                        x-show="images.length > PHOTO_COLLAPSE_THRESHOLD"
+                        @click="photosExpanded = false"
+                        class="text-xs text-gray-500 hover:text-white transition mb-3"
+                    >
+                        Hide photos
+                    </button>
+                    <div class="grid grid-cols-3 sm:grid-cols-4 gap-3">
+                        <template x-for="(img, i) in images" :key="img.uuid">
+                            <div class="bg-gray-800 rounded-lg overflow-hidden">
+                                <template x-if="img.localUrl">
+                                    <img :src="img.localUrl" loading="lazy" class="w-full h-24 object-cover" :alt="img.original_name">
+                                </template>
+                                <template x-if="!img.localUrl">
+                                    <div class="w-full h-24 flex items-center justify-center text-yellow-500/80 text-xs text-center px-2">
+                                        File pruned — re-upload to include
+                                    </div>
+                                </template>
+                                <div class="flex items-center justify-between px-1.5 py-1">
+                                    <button @click="moveImageLeft(i)" :disabled="i === 0" class="text-gray-500 hover:text-white disabled:opacity-20 transition p-0.5" title="Move earlier">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                                    </button>
+                                    <span class="text-[10px] text-gray-500" x-text="i + 1"></span>
+                                    <button @click="moveImageRight(i)" :disabled="i === images.length - 1" class="text-gray-500 hover:text-white disabled:opacity-20 transition p-0.5" title="Move later">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                                    </button>
+                                    <button @click="removeImage(i)" class="text-gray-500 hover:text-red-400 transition p-0.5" title="Remove photo">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                                    </button>
+                                </div>
                             </div>
                         </template>
-                        <div class="flex items-center justify-between px-1.5 py-1">
-                            <button @click="moveImageLeft(i)" :disabled="i === 0" class="text-gray-500 hover:text-white disabled:opacity-20 transition p-0.5" title="Move earlier">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
-                            </button>
-                            <span class="text-[10px] text-gray-500" x-text="i + 1"></span>
-                            <button @click="moveImageRight(i)" :disabled="i === images.length - 1" class="text-gray-500 hover:text-white disabled:opacity-20 transition p-0.5" title="Move later">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                            </button>
-                            <button @click="removeImage(i)" class="text-gray-500 hover:text-red-400 transition p-0.5" title="Remove photo">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-                            </button>
-                        </div>
                     </div>
-                </template>
-            </div>
+                </div>
+            </template>
 
             {{-- Photo settings --}}
             <div x-show="images.length" class="space-y-3 pt-1">
-                <label class="flex items-center gap-2.5 text-sm text-gray-300 cursor-pointer">
-                    <input type="checkbox" x-model="imagesInVideo" class="w-4 h-4 accent-[color:var(--brand)]">
-                    Include photos at the end of the video
-                </label>
-
-                <div x-show="imagesInVideo" class="flex items-center gap-2 text-sm text-gray-400 pl-7">
-                    Show each photo for
-                    <input
-                        type="number" min="1" max="60" step="1"
-                        x-model.number="imageDuration"
-                        class="w-16 bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-sm text-white text-center focus:outline-none focus:border-[color:var(--brand)] transition"
-                    >
-                    seconds
-                </div>
-
-                <p x-show="imagesInVideo && images.length > maxImagesInVideo" class="text-yellow-500/80 text-xs pl-7" x-text="`Only the first ${maxImagesInVideo} photos will appear in the video — the rest will still be downloadable if enabled below.`"></p>
-
                 <label class="flex items-center gap-2.5 text-sm text-gray-300 cursor-pointer">
                     <input type="checkbox" x-model="imagesDownloadable" class="w-4 h-4 accent-[color:var(--brand)]">
                     Let the guest download the photos separately on the share page
@@ -475,7 +502,6 @@
 
             <p class="text-gray-500 text-xs space-x-2">
                 <span x-show="music" class="text-green-400">Background music included.</span>
-                <span x-show="images.length && imagesInVideo" class="text-green-400" x-text="`${images.length} photo${images.length === 1 ? '' : 's'} appended to the video.`"></span>
                 <span x-show="images.length && imagesDownloadable" class="text-green-400">Photos downloadable on the share page.</span>
             </p>
 
@@ -484,7 +510,7 @@
             {{-- Export button --}}
             <button
                 @click="startExport()"
-                :disabled="exporting || pendingUploads.length > 0 || imageUploading || clips.length === 0"
+                :disabled="exporting || uploadsInProgress || imageUploading || clips.length === 0"
                 class="w-full brand-bg text-white font-semibold py-3 rounded-xl hover:opacity-90 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
                 <svg x-show="exporting" class="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
@@ -576,6 +602,7 @@
 
     <script>
     const CHUNK_SIZE = 2 * 1024 * 1024; // 2 MB per chunk
+    const PHOTO_COLLAPSE_THRESHOLD = 12; // above this, photos start collapsed on load
 
     function editor(initial) {
         return {
@@ -585,21 +612,27 @@
                 original_name:  c.original_name,
                 localUrl:       c.localUrl ?? null,
                 trim_start:     c.trim_start ?? 0,
-                trim_end:       c.trim_end ?? 0,
+                trim_end:       c.trim_end ?? 30,
                 audio_mode:     c.audio_mode  ?? 'full',
                 audio_start:    c.audio_start ?? 0,
                 audio_end:      c.audio_end   ?? 0,
                 nativeDuration: null,
                 currentTime:    0,
-                trimEndSet:     true,  // restored — keep saved value
+                // Saved exports carry a trim_end; portal drafts don't (null) —
+                // treat those like fresh uploads and fill from the video duration.
+                trimEndSet:     c.trim_end != null,
                 trimError:      null,
                 fileExpired:    c.fileExpired ?? false,
             })),
-            pendingUploads: [], // [{ uuid, name, progress, error }]
+            pendingUploads: [], // [{ uuid, name, status: pending|uploading|done|error, progress, error }]
             uploadError:    null,
 
             guestName:      initial?.guestName ?? '',
             guestEmail:     initial?.guestEmail ?? '',
+
+            uploaderName:    initial?.uploaderName ?? null,
+            uploaderMessage: initial?.uploaderMessage ?? null,
+            draftUuid:       initial?.draftUuid ?? null,
 
             music:          initial?.music ?? null,
             musicUuid:      initial?.musicUuid ?? null,
@@ -614,12 +647,12 @@
                 localUrl:      i.localUrl ?? null,
                 fileExpired:   i.fileExpired ?? false,
             })),
-            imagesInVideo:      initial?.imagesInVideo ?? true,
-            imageDuration:      initial?.imageDuration ?? {{ (int) config('videoedit.image_duration', 5) }},
+            // Collapsed by default for large photo sets on a returning project,
+            // so re-opening the editor doesn't fetch every thumbnail up front.
+            photosExpanded: (initial?.images || []).length <= PHOTO_COLLAPSE_THRESHOLD,
             imagesDownloadable: initial?.imagesDownloadable ?? false,
             imageUploading:     false,
             imageError:         null,
-            maxImagesInVideo:   {{ (int) config('videoedit.max_images_in_video', 30) }},
 
             exporting:      false,
             exportUuid:     initial?.exportUuid ?? null,
@@ -650,10 +683,7 @@
             // Computed
             // ----------------------------------------------------------------
             get totalDuration() {
-                const clipsTotal  = this.clips.reduce((sum, c) => sum + Math.max(0, c.trim_end - c.trim_start), 0);
-                const imagesInVideoCount = Math.min(this.images.length, this.maxImagesInVideo);
-                const imagesTotal = this.imagesInVideo ? imagesInVideoCount * Math.max(1, this.imageDuration || 5) : 0;
-                return clipsTotal + imagesTotal;
+                return this.clips.reduce((sum, c) => sum + Math.max(0, c.trim_end - c.trim_start), 0);
             },
 
             get estimatedSize() {
@@ -676,22 +706,38 @@
             },
 
             // ----------------------------------------------------------------
-            // Chunked upload — clips (sequential to avoid saturating the connection)
+            // Chunked upload — all selected files are queued and shown at once,
+            // then uploaded sequentially to avoid saturating the connection.
+            // Each row shows its own status: pending → uploading (%) → done.
             // ----------------------------------------------------------------
             async _uploadClipFiles(files) {
                 this.uploadError = null;
-                for (const f of files) {
-                    await this._chunkUpload(f, 'video');
+                // Queue every file up front so the user sees the full list immediately
+                const queued = files.map(file => {
+                    const uuid = crypto.randomUUID();
+                    this.pendingUploads.push({ uuid, name: file.name, status: 'pending', progress: 0, error: null });
+                    return { file, uuid };
+                });
+                for (const item of queued) {
+                    await this._chunkUpload(item.file, 'video', item.uuid);
                 }
+                this._clearFinishedUploads();
             },
 
-            async _chunkUpload(file, type) {
+            _uploadJob(uuid) {
+                return this.pendingUploads.find(p => p.uuid === uuid);
+            },
+
+            async _chunkUpload(file, type, uuid = null) {
+                if (!uuid) {
+                    uuid = crypto.randomUUID();
+                    this.pendingUploads.push({ uuid, name: file.name, status: 'pending', progress: 0, error: null });
+                }
                 const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
-                const uuid        = crypto.randomUUID();
                 const localUrl    = type === 'video' ? URL.createObjectURL(file) : null;
 
-                const pending = { uuid, name: file.name, progress: 0, error: null };
-                this.pendingUploads.push(pending);
+                let job = this._uploadJob(uuid);
+                if (job) job.status = 'uploading';
 
                 try {
                     for (let i = 0; i < totalChunks; i++) {
@@ -717,8 +763,8 @@
 
                         const data = await resp.json();
                         // Update progress through the reactive array so Alpine detects the change
-                        const reactive = this.pendingUploads.find(p => p.uuid === uuid);
-                        if (reactive) reactive.progress = Math.round(((i + 1) / totalChunks) * 100);
+                        job = this._uploadJob(uuid);
+                        if (job) job.progress = Math.round(((i + 1) / totalChunks) * 100);
 
                         if (data.status === 'done') {
                             if (type === 'video') {
@@ -741,19 +787,29 @@
                             }
                         }
                     }
+                    job = this._uploadJob(uuid);
+                    if (job) job.status = 'done';
                 } catch (err) {
-                    const reactive = this.pendingUploads.find(p => p.uuid === uuid);
-                    if (reactive) reactive.error = err.message;
+                    job = this._uploadJob(uuid);
+                    if (job) { job.status = 'error'; job.error = err.message; }
                     this.uploadError = err.message;
                     if (localUrl) URL.revokeObjectURL(localUrl);
-                } finally {
-                    // Compute the index inside the callback — not before — so it's
-                    // always current even when multiple uploads finish simultaneously.
-                    setTimeout(() => {
-                        const idx = this.pendingUploads.indexOf(pending);
-                        if (idx !== -1) this.pendingUploads.splice(idx, 1);
-                    }, pending.error ? 3000 : 600);
                 }
+            },
+
+            // Remove finished rows: done rows shortly after the batch completes,
+            // error rows a bit later so the message can be read.
+            _clearFinishedUploads() {
+                setTimeout(() => {
+                    this.pendingUploads = this.pendingUploads.filter(p => p.status !== 'done');
+                }, 1500);
+                setTimeout(() => {
+                    this.pendingUploads = this.pendingUploads.filter(p => p.status !== 'error');
+                }, 8000);
+            },
+
+            get uploadsInProgress() {
+                return this.pendingUploads.some(p => p.status === 'pending' || p.status === 'uploading');
             },
 
             // ----------------------------------------------------------------
@@ -812,6 +868,7 @@
                 this.music     = file;
                 this.musicUuid = null;
                 await this._chunkUpload(file, 'music');
+                this._clearFinishedUploads();
             },
 
             clearMusic() {
@@ -869,6 +926,7 @@
 
                 this.imageUploading = true;
                 this.imageError     = null;
+                this.photosExpanded = true; // show what's being added, even if the set was collapsed
 
                 try {
                     for (const file of files) {
@@ -969,11 +1027,10 @@
                         music_uuid:  this.musicUuid ?? null,
                         logo_uuid:   this.logoUuid ?? null,
                         images:              this.images.map(i => i.uuid),
-                        images_in_video:     this.imagesInVideo,
-                        image_duration:      Math.max(1, this.imageDuration || 5),
                         images_downloadable: this.imagesDownloadable,
                         guest_name:  this.guestName.trim() || null,
                         guest_email: this.guestEmail.trim() || null,
+                        draft_uuid:  this.draftUuid,
                     };
 
                     const resp = await fetch('/export', {
