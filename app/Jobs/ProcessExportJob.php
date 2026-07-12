@@ -17,7 +17,7 @@ class ProcessExportJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $timeout = 1800; // 30 minutes
+    public int $timeout;
 
     public int $tries = 3; // allow up to 3 attempts so an orphaned job (killed worker) can recover
 
@@ -28,7 +28,9 @@ class ProcessExportJob implements ShouldQueue
         private readonly ?string $logoUuid = null,
         private readonly array $images = [],
         private readonly bool $imagesDownloadable = false,
-    ) {}
+    ) {
+        $this->timeout = (int) config('videoedit.export_timeout', 3600);
+    }
 
     public function handle(): void
     {
@@ -157,31 +159,34 @@ class ProcessExportJob implements ShouldQueue
                 }
                 $filter = "[0:v]{$normalize}[v];" . ($hasVideoAudio ? "{$musicFilter};" : '') . "{$aIn}{$musicIn}amix=inputs=2:duration=first:dropout_transition=2[a]";
                 $this->ffmpeg(sprintf(
-                    '-y -ss %s -t %s -i %s -stream_loop -1 -i %s -filter_complex %s -map [v] -map [a] -c:v libx264 -preset fast -crf 23 -threads 2 -c:a aac %s',
+                    '-y -ss %s -t %s -i %s -stream_loop -1 -i %s -filter_complex %s -map [v] -map [a] -c:v libx264 %s -c:a aac %s',
                     escapeshellarg((string) $clip['trim_start']),
                     escapeshellarg((string) $duration),
                     escapeshellarg($input),
                     escapeshellarg($musicPath),
                     escapeshellarg($filter),
+                    $this->encodeFlags(),
                     escapeshellarg($outputPath),
                 ));
             } elseif ($audioF !== null) {
                 $filter = "[0:v]{$normalize}[v];[0:a]{$audioF}[a]";
                 $this->ffmpeg(sprintf(
-                    '-y -ss %s -t %s -i %s -filter_complex %s -map [v] -map [a] -c:v libx264 -preset fast -crf 23 -threads 2 -c:a aac %s',
+                    '-y -ss %s -t %s -i %s -filter_complex %s -map [v] -map [a] -c:v libx264 %s -c:a aac %s',
                     escapeshellarg((string) $clip['trim_start']),
                     escapeshellarg((string) $duration),
                     escapeshellarg($input),
                     escapeshellarg($filter),
+                    $this->encodeFlags(),
                     escapeshellarg($outputPath),
                 ));
             } else {
                 $this->ffmpeg(sprintf(
-                    '-y -ss %s -t %s -i %s -vf %s -c:v libx264 -preset fast -crf 23 -threads 2 -c:a aac %s',
+                    '-y -ss %s -t %s -i %s -vf %s -c:v libx264 %s -c:a aac %s',
                     escapeshellarg((string) $clip['trim_start']),
                     escapeshellarg((string) $duration),
                     escapeshellarg($input),
                     escapeshellarg($normalize),
+                    $this->encodeFlags(),
                     escapeshellarg($outputPath),
                 ));
             }
@@ -234,19 +239,21 @@ class ProcessExportJob implements ShouldQueue
                     . "concat=n={$n}:v=1:a=1[v][concata];{$musicFilter}[concata]{$musicIn}amix=inputs=2:duration=first:dropout_transition=2[a]";
 
             $this->ffmpeg(sprintf(
-                '-y %s -stream_loop -1 -i %s -filter_complex %s -map [v] -map [a] -c:v libx264 -preset fast -crf 23 -threads 2 -c:a aac %s',
+                '-y %s -stream_loop -1 -i %s -filter_complex %s -map [v] -map [a] -c:v libx264 %s -c:a aac %s',
                 $inputs,
                 escapeshellarg($musicPath),
                 escapeshellarg($filter),
+                $this->encodeFlags(),
                 escapeshellarg($outputPath),
             ));
         } else {
             $filter = $scaleFilters . $concatStreams . "concat=n={$n}:v=1:a=1[v][a]";
 
             $this->ffmpeg(sprintf(
-                '-y %s -filter_complex %s -map [v] -map [a] -c:v libx264 -preset fast -crf 23 -threads 2 -c:a aac %s',
+                '-y %s -filter_complex %s -map [v] -map [a] -c:v libx264 %s -c:a aac %s',
                 $inputs,
                 escapeshellarg($filter),
+                $this->encodeFlags(),
                 escapeshellarg($outputPath),
             ));
         }
@@ -344,11 +351,12 @@ class ProcessExportJob implements ShouldQueue
         $filterComplex = implode(';', $filterParts);
 
         $this->ffmpeg(sprintf(
-            '-y %s -filter_complex %s -map [%s] -map [%s] -c:v libx264 -preset fast -crf 23 -threads 2 -c:a aac %s',
+            '-y %s -filter_complex %s -map [%s] -map [%s] -c:v libx264 %s -c:a aac %s',
             $inputArgs,
             escapeshellarg($filterComplex),
             $outV,
             $outA,
+            $this->encodeFlags(),
             escapeshellarg($outputPath),
         ));
     }
@@ -463,6 +471,20 @@ class ProcessExportJob implements ShouldQueue
         ));
     }
 
+    /**
+     * -preset/-crf/-threads shared by every encode call. Threads is the main
+     * lever on wall-clock time — see config/videoedit.php for tuning notes.
+     */
+    private function encodeFlags(): string
+    {
+        return sprintf(
+            '-preset %s -crf %d -threads %d',
+            config('videoedit.ffmpeg_preset', 'fast'),
+            (int) config('videoedit.ffmpeg_crf', 23),
+            (int) config('videoedit.ffmpeg_threads', 2),
+        );
+    }
+
     private function ffmpeg(string $args): void
     {
         $bin    = config('videoedit.ffmpeg', 'ffmpeg');
@@ -470,7 +492,14 @@ class ProcessExportJob implements ShouldQueue
         $output = [];
         $code   = 0;
 
+        $startedAt = microtime(true);
         exec($cmd, $output, $code);
+        $elapsed = round(microtime(true) - $startedAt, 1);
+
+        Log::info('FFmpeg command finished', [
+            'exit_code'    => $code,
+            'elapsed_secs' => $elapsed,
+        ]);
 
         if ($code !== 0) {
             // Log the full output so we can see the actual error line,
